@@ -84,10 +84,14 @@ def save_img(x_normal, x_anomaly, img_normal, img_anomaly, name):
 #ヒートマップの計算
 def evaluate_img(model, x_normal_path, x_anomaly_path, name, height=16, width=16, move=2):
     x_normal = cv2.imread(x_normal_path)
+    #dump code
+    x_normal = cv2.resize(x_normal,(64,64))
     x_normal = x_normal.reshape(1,data_shape[0],data_shape[1],data_shape[2])
     x_normal = x_normal / 255
 
     x_anomaly = cv2.imread(x_anomaly_path)
+    #dump code
+    x_anomaly = cv2.resize(x_anomaly,(64,64))
     x_anomaly = x_anomaly.reshape(1,data_shape[0],data_shape[1],data_shape[2])
     x_anomaly = x_anomaly / 255
     img_normal = np.zeros((x_normal.shape))
@@ -134,10 +138,14 @@ def evaluate_img(model, x_normal_path, x_anomaly_path, name, height=16, width=16
 
 def get_result_evaluate(model, x_normal_path, x_anomaly_path, height=16, width=16, move=2):
     x_normal = cv2.imread(x_normal_path)
+    #dump code
+    x_normal = cv2.resize(x_normal,(64,64))
     x_normal = x_normal.reshape(1,data_shape[0],data_shape[1],data_shape[2])
     x_normal = x_normal / 255
 
     x_anomaly = cv2.imread(x_anomaly_path)
+    #dump code
+    x_anomaly = cv2.resize(x_anomaly,(64,64))
     x_anomaly = x_anomaly.reshape(1,data_shape[0],data_shape[1],data_shape[2])
     x_anomaly = x_anomaly / 255
     img_normal = np.zeros((x_normal.shape))
@@ -300,6 +308,8 @@ def train_vae(model_name, data_num, dir_train, dir_validate = None):
             # image = cv2.imread(dir_train + file_name)
             print(random.choice(os.listdir(dir_train)))
             image = cv2.imread(dir_train+random.choice(os.listdir(dir_train)))
+            #dump code
+            image = cv2.resize(image,(64,64))
             #image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
             image = image.reshape(data_shape[0],data_shape[1],data_shape[2])
             image = image / 255
