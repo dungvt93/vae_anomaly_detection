@@ -13,7 +13,7 @@ from keras import backend as K
 from keras.layers import BatchNormalization, Activation, Flatten, Dropout
 from keras.layers.convolutional import Conv2DTranspose, Conv2D
 from keras.models import load_model
-import datetime
+import time
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -31,10 +31,10 @@ latent_dim = 2
 epochs = 5
 Nc = 16
 # dataset
-data_shape = [86,86,3]
+data_shape = [84,84,3]
 
 #ヒートマップの描画
-def save_img(x_normal, x_anomaly, img_normal, img_anomaly, name):
+def save_img(x_normal, x_anomaly, img_normal, img_anomaly):
     path = 'images/'
     if not os.path.exists(path):
         os.mkdir(path)
@@ -61,7 +61,7 @@ def save_img(x_normal, x_anomaly, img_normal, img_anomaly, name):
     plt.colorbar()
     plt.clim(1, 10)
 
-    plt.title(name + "normal")
+    plt.title( "normal")
 
     plt.subplot(2, 2, 3)
     plt.imshow(x_anomaly[0,:,:,0], cmap='gray')
@@ -74,24 +74,20 @@ def save_img(x_normal, x_anomaly, img_normal, img_anomaly, name):
     plt.colorbar()
     plt.clim(1, 10)
 
-    plt.title(name + "anomaly")
+    plt.title("anomaly")
 
-    plt.savefig(path + name +".png")
+    plt.savefig(path + "result.png")
     plt.show()
     plt.close()
 
 
 #ヒートマップの計算
-def evaluate_img(model, x_normal_path, x_anomaly_path, name, height=16, width=16, move=2):
+def evaluate_img(model, x_normal_path, x_anomaly_path, height=16, width=16, move=2, im_show=False):
     x_normal = cv2.imread(x_normal_path)
-    #dump code
-    x_normal = cv2.resize(x_normal,(64,64))
     x_normal = x_normal.reshape(1,data_shape[0],data_shape[1],data_shape[2])
     x_normal = x_normal / 255
 
     x_anomaly = cv2.imread(x_anomaly_path)
-    #dump code
-    x_anomaly = cv2.resize(x_anomaly,(64,64))
     x_anomaly = x_anomaly.reshape(1,data_shape[0],data_shape[1],data_shape[2])
     x_anomaly = x_anomaly / 255
     img_normal = np.zeros((x_normal.shape))
@@ -103,60 +99,7 @@ def evaluate_img(model, x_normal_path, x_anomaly_path, name, height=16, width=16
             x_sub_anomaly = x_anomaly[0, i*move:i*move+height, j*move:j*move+width, :]
             x_sub_normal = x_sub_normal.reshape(1, height, width, 3)
             x_sub_anomaly = x_sub_anomaly.reshape(1, height, width, 3)
-            print(str(i)+"/"+str(j))
-            #従来手法
-            if name == "old_":
-                #正常のスコア
-                normal_score = model.evaluate(x_sub_normal, batch_size=1, verbose=0)
-                img_normal[0, i*move:i*move+height, j*move:j*move+width, 0] +=  normal_score
-
-                #異常のスコア
-                anomaly_score = model.evaluate(x_sub_anomaly, batch_size=1, verbose=0)
-                img_anomaly[0, i*move:i*move+height, j*move:j*move+width, 0] +=  anomaly_score
-
-            #提案手法
-            else:
-                #正常のスコア
-                mu, sigma = model.predict(x_sub_normal, batch_size=1, verbose=0)
-                loss = 0
-                for k in range(height):
-                    for l in range(width):
-                        loss += 0.5 * (np.mean(x_sub_normal[0,k,l,:]) - np.mean(mu[0,k,l,:]))**2 / np.mean(sigma[0,k,l,:])
-                        # loss += 0.5 * (x_sub_normal[0,k,l,0] - mu[0,k,l,0])**2 / sigma[0,k,l,0]
-                img_normal[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss
-
-                #異常のスコア
-                mu, sigma = model.predict(x_sub_anomaly, batch_size=1, verbose=0)
-                loss = 0
-                for k in range(height):
-                    for l in range(width):
-                        loss += 0.5 * (np.mean(x_sub_anomaly[0,k,l,:]) - np.mean(mu[0,k,l,:]))**2 / np.mean(sigma[0,k,l,:])
-                        # loss += 0.5 * (x_sub_normal[0,k,l,0] - mu[0,k,l,0])**2 / sigma[0,k,l,0]
-                img_anomaly[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss
-
-    save_img(x_normal, x_anomaly, img_normal, img_anomaly, name)
-
-def get_result_evaluate(model, x_normal_path, x_anomaly_path, height=16, width=16, move=2):
-    x_normal = cv2.imread(x_normal_path)
-    #dump code
-    x_normal = cv2.resize(x_normal,(64,64))
-    x_normal = x_normal.reshape(1,data_shape[0],data_shape[1],data_shape[2])
-    x_normal = x_normal / 255
-
-    x_anomaly = cv2.imread(x_anomaly_path)
-    #dump code
-    x_anomaly = cv2.resize(x_anomaly,(64,64))
-    x_anomaly = x_anomaly.reshape(1,data_shape[0],data_shape[1],data_shape[2])
-    x_anomaly = x_anomaly / 255
-    img_normal = np.zeros((x_normal.shape))
-    img_anomaly = np.zeros((x_normal.shape))
-
-    for i in range(int((x_normal.shape[1]-height)/move)):
-        for j in range(int((x_normal.shape[2]-width)/move)):
-            x_sub_normal = x_normal[0, i*move:i*move+height, j*move:j*move+width, :]
-            x_sub_anomaly = x_anomaly[0, i*move:i*move+height, j*move:j*move+width, :]
-            x_sub_normal = x_sub_normal.reshape(1, height, width, 3)
-            x_sub_anomaly = x_sub_anomaly.reshape(1, height, width, 3)
+            # print(str(i)+"/"+str(j))
 
             #正常のスコア
             mu, sigma = model.predict(x_sub_normal, batch_size=1, verbose=0)
@@ -173,15 +116,17 @@ def get_result_evaluate(model, x_normal_path, x_anomaly_path, height=16, width=1
             for k in range(height):
                 for l in range(width):
                     loss += 0.5 * (np.mean(x_sub_anomaly[0,k,l,:]) - np.mean(mu[0,k,l,:]))**2 / np.mean(sigma[0,k,l,:])
-                    # loss += 0.5 * (x_sub_anomaly[0,k,l,0] - mu[0,k,l,0])**2 / sigma[0,k,l,0]
+                    # loss += 0.5 * (x_sub_normal[0,k,l,0] - mu[0,k,l,0])**2 / sigma[0,k,l,0]
             img_anomaly[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss
 
-    img_max = np.max([img_normal, img_anomaly])
-    img_min = np.min([img_normal, img_anomaly])
-    img_normal = (img_normal-img_min)/(img_max-img_min) * 9 + 1
-    img_anomaly = (img_anomaly-img_min)/(img_max-img_min) * 9 + 1
-    return  img_anomaly[0,:,:,0]-img_normal[0,:,:,0]
-
+    if im_show == True:
+        save_img(x_normal, x_anomaly, img_normal, img_anomaly)
+    else:
+        img_max = np.max([img_normal, img_anomaly])
+        img_min = np.min([img_normal, img_anomaly])
+        img_normal = (img_normal-img_min)/(img_max-img_min) * 9 + 1
+        img_anomaly = (img_anomaly-img_min)/(img_max-img_min) * 9 + 1
+        return  img_anomaly[0,:,:,0]-img_normal[0,:,:,0]
 
 #16×16のサイズに切り出す
 def cut_img(x, number, height=16, width=16, move = 2):
@@ -224,9 +169,9 @@ def print_eval(vae, dir_name, base_img):
     total_anomaly = 0
     for file_name in os.listdir(dir_name):
         test = dir_name + "/" + file_name
-        result_img = get_result_evaluate(vae, base_img, test, input_shape[0], input_shape[1],move)
+        result_img = evaluate_img(vae, base_img, test, input_shape[0], input_shape[1],move)
         # if len(np.where(sub_img > 6)[0]) > 32:
-        if np.amax(result_img) > 6:
+        if np.amax(result_img) > 8:
             total_anomaly += 1
         print(file_name," number of anomaly is: ",total_anomaly)
 
@@ -267,11 +212,11 @@ def create_model():
 
     x1 = Conv2DTranspose(3, kernel_size=4, padding='same')(x)
     # x1 = BatchNormalization()(x1)
-    out1 = Activation('sigmoid')(x1)#out.shape=(n,28,28,1)
+    out1 = Activation('sigmoid')(x1)
 
     x2 = Conv2DTranspose(3, kernel_size=4, padding='same')(x)
     # x2 = BatchNormalization()(x2)
-    out2 = Activation('sigmoid')(x2)#out.shape=(n,28,28,1)
+    out2 = Activation('sigmoid')(x2)
 
     decoder = Model(latent_inputs, [out1, out2], name='decoder')
     decoder.summary()
@@ -308,8 +253,6 @@ def train_vae(model_name, data_num, dir_train, dir_validate = None):
             # image = cv2.imread(dir_train + file_name)
             print(random.choice(os.listdir(dir_train)))
             image = cv2.imread(dir_train+random.choice(os.listdir(dir_train)))
-            #dump code
-            image = cv2.resize(image,(64,64))
             #image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
             image = image.reshape(data_shape[0],data_shape[1],data_shape[2])
             image = image / 255
@@ -360,12 +303,12 @@ def load_weights(model_name):
 
 if __name__=="__main__":
     # dir_train = '../lego/microscope/OK/'
-    dir_train = '../lego/result/OK/'
-    # train_vae("coner",100000, dir_train)
-    # vae = load_model("coner")
-    vae = load_weights("best")
-    vae.encoder.summary()
-    exit()
+    #dir_train = './lines/train/05/'
+    #train_vae("05_32",100000, dir_train)
+    vae = load_model("05")
+    #vae = load_weights("best")
+    #vae.encoder.summary()
+    #exit()
 
     #正常/異常のテストデータ
     # center
@@ -378,14 +321,18 @@ if __name__=="__main__":
 
     #正常/異常のテストデータ
     # start->102
-    test_normal = '../lego/result/OK/000205.jpg'
-    test_anomaly = '../lego/result/test/OK/005112.jpg'
-    # test_anomaly = '../lego/result/test/NG/000235.jpg'
+    #test_normal = './lines/train/11/000008.jpg'
+    test_normal = './lines/train/05/000009.jpg'
+    test_anomaly = './lines/test/ng/05/05-2/000445.jpg'
+    #test_anomaly = './lines/test/ok/05/000320.jpg'
 
-    # print_eval(vae,"../lego/result/test/NG_fake",test_normal)
-    # print_eval(vae,"../lego/result/test/OK",test_normal)
-    # exit()
+    print_eval(vae,"./lines/test/ok/05",test_normal)
+    print("*****************************")
+    print_eval(vae,"./lines/test/ng/05/05-1",test_normal)
+    print("*****************************")
+    print_eval(vae,"./lines/test/ng/05/05-2",test_normal)
+    exit()
 
     #提案手法の可視化
-    evaluate_img(vae, test_normal, test_anomaly, "new", input_shape[0],input_shape[1],move)
+    evaluate_img(vae, test_normal, test_anomaly,input_shape[0],input_shape[1],move,im_show=True)
 
