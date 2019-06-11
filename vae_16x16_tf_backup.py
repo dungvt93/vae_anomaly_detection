@@ -21,24 +21,26 @@ Nc = 16
 data_shape = [84,84,3]
 
 class Model:
-    def __init__(self, num_epoch=5, batch_size=200):
+    def __init__(self, img_height=64, img_width=64, img_channel=3,num_epoch=5, batch_size=200):
+        self.img_height = img_height
+        self.img_width = img_width
+        self.img_channel = img_channel
         self.num_epoch = num_epoch
         self.batch_size = batch_size
 
-        #variable for init model
+        # session param
+        self.input = None
         self.outputs_sigma_2 = None
         self.outputs_mu = None
         self.z_mean = None
         self.z_log_var = None
+        self.score = None
         self.session = None
-        self.input_list = []
-        self.score_list = []
-        self.cost_list = []
-        self.train_op_list = []
 
-    def init_model(self, namespace='model', input=None, training=True):
+    def init_model(self, namespace='model', training=True):
         with tf.variable_scope(namespace):
-            self.out_put  = input
+            self.input = tf.placeholder(tf.float32, shape=[None, self.img_height, self.img_width, self.img_channel])
+            self.out_put = self.input
 
             # build encoder
             for i in range(0,3):
@@ -68,12 +70,12 @@ class Model:
 
             self.outputs_mu = tf.layers.conv2d_transpose(self.out_put, filters=3,kernel_size=(4,4),strides=(1,1),padding='same',activation=tf.nn.sigmoid)
             self.outputs_sigma_2 = tf.layers.conv2d_transpose(self.out_put, filters=3,kernel_size=(4,4),strides=(1,1),padding='same',activation=tf.nn.sigmoid)
-            score = tf.reduce_sum(0.5 * (tf.reduce_mean(input,axis=[3]) - tf.reduce_mean(self.outputs_mu,axis=[3]))**2 / tf.reduce_mean(self.outputs_sigma_2,axis=[3]), axis=[1,2])
+            self.score = tf.reduce_sum(0.5 * (tf.reduce_mean(self.input,axis=[3]) - tf.reduce_mean(self.outputs_mu,axis=[3]))**2 / tf.reduce_mean(self.outputs_sigma_2,axis=[3]), axis=[1,2])
 
-            cost = self.compute_loss(input, self.z_log_var,self.z_mean,self.outputs_mu,self.outputs_sigma_2)
+            cost = self.compute_loss(self.input, self.z_log_var,self.z_mean,self.outputs_mu,self.outputs_sigma_2)
             optimizer = tf.train.AdamOptimizer()
             train_op = optimizer.minimize(cost)
-            return  score, cost, train_op
+            return  self.score, cost, train_op
 
     # reparameterization trick
     # instead of sampling from Q(z|X), sample eps = N(0,I)
@@ -130,37 +132,22 @@ class Model:
             if len(x_train) > 500:
                 break
         x_train = np.array(x_train)
-        x_train = self.cut_img(x_train, data_num, input_shape[0], input_shape[1])
+        x_train = self.cut_img(x_train, data_num, self.img_height, self.img_width)
         print(x_train.shape)
         return  x_train
 
-    # param:
-    # 1. folder image for trainning
-    # 2. folder to save model
-    # 3. number of model in combine model
-    # 4. number of data for trainning (cut from image in folder image)
-    # 5. squence of model in combine model will be used to trainning
-    # 6. True if create new combine model, False if load exist combine model
-    # 7. True if continue trainning single model in combine model, False if reset and trainning single model in combine model
-    def train(self, train_ok_folder='./train/', model_path='./model/',number_of_model = 14, model_id=0, data_num=100000, new_combine_model=False, resume_single_model=False):
+    def train(self, train_ok_folder='./train/', model_path='./model/', model_id=0, data_num=100000, resume=False):
         tf.reset_default_graph()
-        for i in range(number_of_model):
-            self.input_list.append(tf.placeholder(tf.float32, shape=[None, input_shape[0], input_shape[1], input_shape[2]]))
-            score , cost, train_op = self.init_model(namespace='model_' + str(i),input=self.input_list[i], training=True)
-            self.score_list.append(score)
-            self.cost_list.append(cost)
-            self.train_op_list.append(train_op)
+        self.score , cost, train_op = self.init_model(namespace='model_' + str(model_id), training=True)
 
         saver = tf.train.Saver()
         config = tf.ConfigProto()
         #config.gpu_options.per_process_gpu_memory_fraction = 0.6
         self.session = tf.Session(config=config)
-        if new_combine_model:
-            self.session.run(tf.global_variables_initializer())
-        else:
+        if resume:
             saver.restore(self.session, model_path)
-            if not resume_single_model:
-                self.session.run(tf.initialize_variables(tf.global_variables('model_' + str(model_id) + '\D')))
+        else:
+            self.session.run(tf.global_variables_initializer())
 
         #get data
         aver_train_loss = 0
@@ -169,7 +156,7 @@ class Model:
             for j in range(0, data_num, self.batch_size):
                 end_j = min(data_num, j+self.batch_size)
                 x_train_batch = np.float32(x_train[j:end_j])
-                score, loss, _ = self.session.run([self.score_list[model_id],self.cost_list[model_id], self.train_op_list[model_id]], feed_dict={self.input_list[model_id]:x_train_batch})
+                score, loss, _ = self.session.run([self.score,cost, train_op], feed_dict={self.input:x_train_batch})
                 aver_train_loss += loss*(end_j - j)
                 sys.stdout.write('\rEpoch ' +  str(i) + ' Train Progress ' + str(j) + ' Loss ' + str(loss) )
 
@@ -177,14 +164,9 @@ class Model:
             print('\nModel ID', model_id,'Average Loss', aver_train_loss)
         saver.save(self.session, model_path)
 
-    def load(self,model_path='./model/', number_of_model=14):
+    def load(self,model_path='./model/',model_id=0):
         tf.reset_default_graph()
-        for i in range(number_of_model):
-            self.input_list.append(tf.placeholder(tf.float32, shape=[None, input_shape[0], input_shape[1], input_shape[2]]))
-            score , cost, train_op = self.init_model(namespace='model_' + str(i), input=self.input_list[i], training=True)
-            self.score_list.append(score)
-            self.cost_list.append(cost)
-            self.train_op_list.append(train_op)
+        self.score ,cost, train_op = self.init_model(namespace='model_' + str(model_id), training=True)
 
         saver = tf.train.Saver()
         config = tf.ConfigProto()
@@ -193,10 +175,8 @@ class Model:
         saver.restore(self.session, model_path)
 
     #ヒートマップの計算
-    def evaluate_img(self, x_normal_path, x_anomaly_path, model_id=0, im_show=False):
-        height = input_shape[0]
-        width = input_shape[1]
-
+    def evaluate_img(self, x_normal_path, x_anomaly_path, height=16, width=16, move=2, im_show=False):
+        start = time.time()
         x_normal = cv2.imread(x_normal_path)
         x_normal = x_normal.reshape(1,data_shape[0],data_shape[1],data_shape[2])
         x_normal = x_normal / 255
@@ -220,30 +200,37 @@ class Model:
                 # print(str(i)+"/"+str(j))
 
         #正常のスコア
-        loss = self.session.run([self.score_list[model_id]],feed_dict={self.input_list[model_id]:np.float32(x_sub_normal_list)})
+        loss = self.session.run([self.score],feed_dict={self.input:np.float32(x_sub_normal_list)})
 
         #異常のスコア
-        loss_ano = self.session.run([self.score_list[model_id]],feed_dict={self.input_list[model_id]:np.float32(x_sub_anomaly_list)})
+        loss_ano = self.session.run([self.score],feed_dict={self.input:np.float32(x_sub_anomaly_list)})
+        z = 0
+        for i in range(int((x_normal.shape[1]-height)/move)):
+            for j in range(int((x_normal.shape[2]-width)/move)):
+                #正常のスコア
+                img_normal[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss[0][z]
+
+                #異常のスコア
+                img_anomaly[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss_ano[0][z]
+                z +=1
 
         if im_show:
-            z = 0
-            for i in range(int((x_normal.shape[1]-height)/move)):
-                for j in range(int((x_normal.shape[2]-width)/move)):
-                    #正常のスコア
-                    img_normal[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss[0][z]
-
-                    #異常のスコア
-                    img_anomaly[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss_ano[0][z]
-                    z +=1
             self.save_img(x_normal, x_anomaly, img_normal, img_anomaly)
         else:
-            return self.is_anomaly(loss[0],loss_ano[0],height,width)
+            img_max = np.max([img_normal, img_anomaly])
+            img_min = np.min([img_normal, img_anomaly])
+            img_normal = (img_normal-img_min)/(img_max-img_min) * 9 + 1
+            img_anomaly = (img_anomaly-img_min)/(img_max-img_min) * 9 + 1
+            end = time.time()
+            total_time += (end-start)
+            print(str(total_time))
+            return img_anomaly[0,:,:,0]-img_normal[0,:,:,0]
 
-    def print_eval(self,dir_name, base_img, model_id):
+    def print_eval(self,dir_name, base_img):
         total_anomaly = 0
         for file_name in os.listdir(dir_name):
             test = dir_name + "/" + file_name
-            result_img = self.evaluate_img( base_img, test, model_id=model_id)
+            result_img = self.evaluate_img( base_img, test, input_shape[0], input_shape[1],move)
             # if len(np.where(sub_img > 6)[0]) > 32:
             if np.amax(result_img) > 8:
                 total_anomaly += 1
@@ -296,139 +283,68 @@ class Model:
         plt.show()
         plt.close()
 
-    # detect anomaly of real image
-    # param;
-    # 1. list part of compare image
-    # 2. list part of test image
-    # 3. pixel move
-    # output: sequence of part anomaly. None if normal image
-    def detect(self, x_normal_list, x_anomaly_list, move=2):
-        height = input_shape[0]
-        width = input_shape[1]
-        feed_dict_normal = {}
-        feed_dict_anomaly = {}
-        start = time.time()
-        # preprocess data
-        for index, (x_normal, x_anomaly) in enumerate(zip(x_normal_list,x_anomaly_list)):
-            x_normal = x_normal.reshape(1,data_shape[0],data_shape[1],data_shape[2])
-            x_normal = x_normal / 255
-            x_anomaly = x_anomaly.reshape(1,data_shape[0],data_shape[1],data_shape[2])
-            x_anomaly = x_anomaly / 255
-            #list cut_image of one part (compare image)
-            x_sub_normal_list = []
-            #list cut_image of one part (test image)
-            x_sub_anomaly_list = []
-            for i in range(int((x_normal.shape[1]-height)/move)):
-                for j in range(int((x_normal.shape[2]-width)/move)):
-                    x_sub_normal = x_normal[0, i*move:i*move+height, j*move:j*move+width, :]
-                    x_sub_anomaly = x_anomaly[0, i*move:i*move+height, j*move:j*move+width, :]
-                    x_sub_normal = x_sub_normal.reshape(height, width, 3)
-                    x_sub_anomaly = x_sub_anomaly.reshape( height, width, 3)
-                    x_sub_normal_list.append(x_sub_normal)
-                    x_sub_anomaly_list.append(x_sub_anomaly)
-            feed_dict_normal[self.input_list[index % 14]] = x_sub_normal_list
-            feed_dict_anomaly[self.input_list[index % 14]] = x_sub_anomaly_list
-        print("time for preprocess",time.time() - start)
-
-        start = time.time()
-        #正常のスコア
-        loss_list = self.session.run([self.score_list],feed_dict=feed_dict_normal)
-
-        #異常のスコア
-        loss_ano_list = self.session.run([self.score_list],feed_dict=feed_dict_anomaly)
-        print("time for inference",time.time() - start)
-        result = None
-
-        start = time.time()
-        for index, (loss, loss_ano) in enumerate(zip(loss_list[0], loss_ano_list[0])):
-            if self.is_anomaly(loss,loss_ano,height,width):
-                result = index
-                break
-        print("time for hitmap",time.time() - start)
-        return result
-
-    # check single image is anomaly or not
-    # param:
-    # 1. list of loss of compare image
-    # 2. list of loss of test image
-    # 3. height of input model
-    # 4. width of input model
-    # output: True if anomaly, False if normal
-    def is_anomaly(self,loss,loss_ano,height,width, thread_hold=8):
-        result = False
-        img_normal = np.zeros(data_shape)
-        img_anomaly = np.zeros(data_shape)
-
-        z = 0
-        for i in range(int((data_shape[0]-height)/move)):
-            for j in range(int((data_shape[1]-width)/move)):
-                #正常のスコア
-                img_normal[i*move:i*move+height, j*move:j*move+width, 0] +=  loss[z]
-
-                #異常のスコア
-                img_anomaly[i*move:i*move+height, j*move:j*move+width, 0] +=  loss_ano[z]
-                z +=1
-
-        img_max = np.max([img_normal, img_anomaly])
-        img_min = np.min([img_normal, img_anomaly])
-        img_normal = (img_normal-img_min)/(img_max-img_min) * 9 + 1
-        img_anomaly = (img_anomaly-img_min)/(img_max-img_min) * 9 + 1
-        img_result = img_anomaly[:,:,0]-img_normal[:,:,0]
-
-        if np.amax(img_result) > thread_hold:
-            # result = True
-            result = False
-        return result
-
 model = Model(
+    img_height=input_shape[1],
+    img_width=input_shape[0],
+    img_channel=input_shape[2],
     batch_size=batch_size,
     num_epoch=epochs)
 
-# temp = 3
+temp = 5
 # model.train(
-#    train_ok_folder='./lines/train/%02d' % temp + '/',
-#    model_path='./model_tf/model',
-#    data_num=100000,
-#    number_of_model=14,
-#    model_id=temp,
-#    new_combine_model=False,
-#    resume_single_model=False)
+#     train_ok_folder='./lines/train/0' + str(temp) + '/',
+#     model_path='./model_tf/model_0' + str(temp) + '/model',
+#     data_num=100000,
+#     model_id=temp,
+#     resume=False)
 
-model.load(model_path='./model_tf/model',number_of_model=14)
+# model.load(model_path='./model_tf/model_0'+ str(temp) +'/model',
+#            model_id=temp)
 
-# dump code for 1 pin
-test_normal_list = []
-test_anomaly_list = []
-for i in range(14):
-    test_normal = cv2.imread('./lines/train/01/000009.jpg')
-    test_normal_list.append(test_normal)
-    test_anomaly = cv2.imread('./lines/test/ok/05/000001.jpg')
-    test_anomaly_list.append(test_anomaly)
 
-for i in range(14):
-    test_normal = cv2.imread('./lines/train/01/000009.jpg')
-    test_normal_list.append(test_normal)
-    test_anomaly = cv2.imread('./lines/test/ok/05/000001.jpg')
-    test_anomaly_list.append(test_anomaly)
-
-total = 0
-for i in range(1000):
-    start = time.time()
-    print(model.detect(test_normal_list,test_anomaly_list,move))
-    print("total one time:" + str(time.time() - start))
-    total += time.time() - start
-print(total)
-
-# test_normal = './lines/train/%02d' % temp + '/000009.jpg'
+test_normal = './lines/train/0' + str(temp) + '/000009.jpg'
 # test_normal = './lines/train/05/002228.png'
 # test_anomaly = './lines/test/ng/05/05-2/002225.png'
 # test_anomaly = './lines/test/ok/05/000671.png'
 # test_anomaly = './lines/test.png'
-# model.print_eval("./lines/test/ok/%02d" % temp +"",test_normal, model_id=temp)
-# print("*****************************")
-# model.print_eval("./lines/test/ng/13/",test_normal,model_id=temp)
-# print("*****************************")
-# model.print_eval("./lines/test/ng/05/05-2_backup",test_normal,model_id=temp)
-# exit()
+total = 0
+list_model = []
+for temp in range(14):
+    model = Model(
+        img_height=input_shape[1],
+        img_width=input_shape[0],
+        img_channel=input_shape[2],
+        batch_size=batch_size,
+        num_epoch=epochs)
+    model.load(model_path='./model_tf/model_%02d' % temp +'/model',
+               model_id=temp)
+    list_model.append(model)
 
-# model.evaluate_img(test_normal, test_anomaly, im_show=True, model_id=temp)
+total = 0
+for temp in range(14):
+    start = time.time()
+    list_model[temp].print_eval("./test_speed/%02d" % temp +""  ,test_normal)
+    total += time.time()-start
+print("total time is:",total)
+total = 0
+for temp in range(14):
+    start = time.time()
+    list_model[temp].print_eval("./test_speed/%02d" % temp +""  ,test_normal)
+    total += time.time()-start
+print("total time is:",total)
+total = 0
+for temp in range(14):
+    start = time.time()
+    list_model[temp].print_eval("./test_speed/%02d" % temp +""  ,test_normal)
+    total += time.time()-start
+print("total time is:",total)
+
+
+
+# model.print_eval("./lines/test/ok/0" + str(temp) +"_backup"  ,test_normal)
+# print("*****************************")
+# model.print_eval("./lines/test/ng/05/05-1_backup",test_normal)
+# print("*****************************")
+# model.print_eval("./lines/test/ng/05/05-2_backup",test_normal)
+# exit()
+#model.evaluate_img(test_normal, test_anomaly, input_shape[0],input_shape[1],move, im_show=True)
