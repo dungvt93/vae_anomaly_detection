@@ -139,7 +139,7 @@ class Model:
     # 2. folder to save model
     # 3. number of model in combine model
     # 4. number of data for trainning (cut from image in folder image)
-    # 5. squence of model in combine model will be used to trainning
+    # 5. sequence of model in combine model will be used to trainning
     # 6. True if create new combine model, False if load exist combine model
     # 7. True if continue trainning single model in combine model, False if reset and trainning single model in combine model
     def train(self, train_ok_folder='./train/', model_path='./model/',number_of_model = 14, model_id=0, data_num=100000, new_combine_model=False, resume_single_model=False):
@@ -405,11 +405,11 @@ for i in range(14):
     test_anomaly = cv2.imread('./lines/test/ok/05/000001.jpg')
     test_anomaly_list.append(test_anomaly)
 
-for i in range(14):
-    test_normal = cv2.imread('./lines/train/01/000009.jpg')
-    test_normal_list.append(test_normal)
-    test_anomaly = cv2.imread('./lines/test/ok/05/000001.jpg')
-    test_anomaly_list.append(test_anomaly)
+# for i in range(14):
+#     test_normal = cv2.imread('./lines/train/01/000009.jpg')
+#     test_normal_list.append(test_normal)
+#     test_anomaly = cv2.imread('./lines/test/ok/05/000001.jpg')
+#     test_anomaly_list.append(test_anomaly)
 
 total = 0
 for i in range(1000):
