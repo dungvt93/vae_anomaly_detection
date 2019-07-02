@@ -119,7 +119,7 @@ def evaluate_img(model, x_normal_path, x_anomaly_path, height=16, width=16, move
                     # loss += 0.5 * (x_sub_normal[0,k,l,0] - mu[0,k,l,0])**2 / sigma[0,k,l,0]
             img_anomaly[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss
 
-    if im_show == True:
+    if im_show:
         save_img(x_normal, x_anomaly, img_normal, img_anomaly)
     else:
         img_max = np.max([img_normal, img_anomaly])
