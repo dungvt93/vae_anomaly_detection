@@ -199,7 +199,7 @@ class Model:
     def find_compare_img(x_anomaly, model_id):
         mean_img = np.mean(x_anomaly,axis = 2)
         index_start = np.where(mean_img > 40)[1][0]
-        return "./%02d_compare/%05d.png" % (model_id,index_start)
+        return cv2.imread("./%02d_compare/%05d.png" % (model_id,index_start))
 
     #ヒートマップの計算
     def evaluate_img(self, x_normal_path, x_anomaly_path, model_id=0, im_show=False):
@@ -209,27 +209,26 @@ class Model:
         x_anomaly = cv2.imread(x_anomaly_path)
         #find compare img
         if x_normal_path is None:
-            x_normal_path = Model.find_compare_img(x_anomaly,model_id)
+            x_normal = Model.find_compare_img(x_anomaly,model_id)
             # print("compare image:" ,x_normal_path)
+        else:
+            x_normal = cv2.imread(x_normal_path)
 
-        x_anomaly = x_anomaly.reshape(1,data_shape[0],data_shape[1],data_shape[2])
+        x_anomaly = x_anomaly.reshape(data_shape[0],data_shape[1],data_shape[2])
         x_anomaly = x_anomaly / 255
-
-        x_normal = cv2.imread(x_normal_path)
-        x_normal = x_normal.reshape(1,data_shape[0],data_shape[1],data_shape[2])
+        x_normal = x_normal.reshape(data_shape[0],data_shape[1],data_shape[2])
         x_normal = x_normal / 255
 
         img_normal = np.zeros((x_normal.shape))
         img_anomaly = np.zeros((x_anomaly.shape))
-        total_time = 0
         x_sub_normal_list = []
         x_sub_anomaly_list = []
-        for i in range(int((x_normal.shape[1]-height)/move)+1):
-            for j in range(int((x_normal.shape[2]-width)/move)+1):
-                x_sub_normal = x_normal[0, i*move:i*move+height, j*move:j*move+width, :]
-                x_sub_anomaly = x_anomaly[0, i*move:i*move+height, j*move:j*move+width, :]
+        for i in range(int((x_normal.shape[0]-height)/move)+1):
+            for j in range(int((x_normal.shape[1]-width)/move)+1):
+                x_sub_normal = x_normal[i*move:i*move+height, j*move:j*move+width, :]
+                x_sub_anomaly = x_anomaly[i*move:i*move+height, j*move:j*move+width, :]
                 x_sub_normal = x_sub_normal.reshape(height, width, 3)
-                x_sub_anomaly = x_sub_anomaly.reshape( height, width, 3)
+                x_sub_anomaly = x_sub_anomaly.reshape(height, width, 3)
                 x_sub_normal_list.append(x_sub_normal)
                 x_sub_anomaly_list.append(x_sub_anomaly)
                 # print(str(i)+"/"+str(j))
@@ -242,25 +241,40 @@ class Model:
 
         if im_show:
             z = 0
-            for i in range(int((x_normal.shape[1]-height)/move)+1):
-                for j in range(int((x_normal.shape[2]-width)/move)+1):
+            for i in range(int((x_normal.shape[0]-height)/move)+1):
+                for j in range(int((x_normal.shape[1]-width)/move)+1):
                     #正常のスコア
-                    img_normal[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss[0][z]
+                    img_normal[i*move:i*move+height, j*move:j*move+width, 0] +=  loss[0][z]
 
                     #異常のスコア
-                    img_anomaly[0, i*move:i*move+height, j*move:j*move+width, 0] +=  loss_ano[0][z]
+                    img_anomaly[i*move:i*move+height, j*move:j*move+width, 0] +=  loss_ano[0][z]
                     z +=1
 
-            #recalculate conner cell loss
-            for i in (0,int((data_shape[0]-height)/move)-move-1):
-                img_normal[0,i:i+move,:,0] = img_normal[0,i:i+move,:,0]* 2
-                img_anomaly[0,i:i+move,:,0] = img_anomaly[0,i:i+move,:,0]*2
-                img_normal[0,:,i:i+move,0] = img_normal[0,:,i:i+move,0]*2
-                img_anomaly[0,:,i:i+move,0] = img_anomaly[0,:,i:i+move,0]*2
-
+            img_normal, img_anomaly = Model.recalculate_conner_score(img_normal,img_anomaly)
+            self.save_loss_map(img_normal,img_anomaly)
             self.save_heat_map(x_normal, x_anomaly, img_normal, img_anomaly)
         else:
             return Model.is_anomaly(loss[0],loss_ano[0],height,width)
+
+    @staticmethod
+    def save_loss_map(img_normal,img_anomaly):
+        if not os.path.exists("loss_file"):
+            os.mkdir("loss_file")
+        # with open("loss_file/img_normal","wb") as fp:
+        #     pickle.dump(img_normal,fp)
+        # with open("loss_file/img_anomaly","wb") as fp:
+        #     pickle.dump(img_anomaly,fp)
+        img_normal = img_normal[:,:,0]
+        img_anomaly = img_anomaly[:,:,0]
+        img_normal = np.reshape(img_normal, [8,8,8,8])
+        img_normal = img_normal[:,0,:,0]
+        img_normal = np.reshape(img_normal, [8,8])
+
+        img_anomaly = np.reshape(img_anomaly, [8,8,8,8])
+        img_anomaly = img_anomaly[:,0,:,0]
+        img_anomaly = np.reshape(img_anomaly, [8,8])
+        # np.savetxt("loss_file/img_normal",img_normal,'%5d')
+        np.savetxt("loss_file/img_anomaly",img_anomaly,'%5d')
 
     #ヒートマップの描画
     @staticmethod
@@ -270,21 +284,19 @@ class Model:
             os.mkdir(path)
 
         #　※注意　評価したヒートマップを1～10に正規化
-        img_max = np.max([img_normal, img_anomaly])
-        img_min = np.min([img_normal, img_anomaly])
-        img_normal = (img_normal-img_min)/(img_max-img_min) * 9 + 1
-        img_anomaly = (img_anomaly-img_min)/(img_max-img_min) * 9 + 1
-        f.create_dataset('a', data=img_anomaly[0,:,:,0]-img_normal[0,:,:,0])
-        f.close()
+        img_max = np.max([img_normal[:,:,0], img_anomaly[:,:,0]])
+        img_min = np.min([img_normal[:,:,0], img_anomaly[:,:,0]])
+        img_normal = (img_normal[:,:,0]-img_min)/(img_max-img_min) * 9 + 1
+        img_anomaly = (img_anomaly[:,:,0]-img_min)/(img_max-img_min) * 9 + 1
 
         plt.figure()
         plt.subplot(2, 2, 1)
-        plt.imshow(x_normal[0,:,:,0], cmap='gray')
+        plt.imshow(x_normal[:,:,0], cmap='gray')
         plt.axis('off')
         plt.colorbar()
 
         plt.subplot(2, 2, 2)
-        plt.imshow(img_normal[0,:,:,0], cmap='Blues',norm=colors.LogNorm())
+        plt.imshow(img_normal[:,:], cmap='Blues',norm=colors.LogNorm())
         plt.axis('off')
         plt.colorbar()
         plt.clim(1, 10)
@@ -292,12 +304,12 @@ class Model:
         plt.title("normal")
 
         plt.subplot(2, 2, 3)
-        plt.imshow(x_anomaly[0,:,:,0], cmap='gray')
+        plt.imshow(x_anomaly[:,:,0], cmap='gray')
         plt.axis('off')
         plt.colorbar()
 
         plt.subplot(2, 2, 4)
-        plt.imshow(img_anomaly[0,:,:,0]-img_normal[0,:,:,0], cmap='Blues',norm=colors.LogNorm())
+        plt.imshow(img_anomaly[:,:]-img_normal[:,:], cmap='Blues',norm=colors.LogNorm())
         plt.axis('off')
         plt.colorbar()
         plt.clim(1, 10)
@@ -316,7 +328,7 @@ class Model:
     # 4. width of input model
     # output: True if anomaly, False if normal
     @staticmethod
-    def is_anomaly(loss,loss_ano,height,width, thread_hold=7.5):
+    def is_anomaly(loss,loss_ano,height,width, thread_hold=7.5, menseki=1):
         result = False
         img_normal = np.zeros(data_shape)
         img_anomaly = np.zeros(data_shape)
@@ -331,35 +343,61 @@ class Model:
                 img_anomaly[i*move:i*move+height, j*move:j*move+width, 0] +=  loss_ano[z]
                 z +=1
 
-        #recalculate conner cell loss
-        for i in (0,int((data_shape[0]-height)/move)-move-1):
-            img_normal[i:i+move,:,0] = img_normal[i:i+move,:,0]* 2
-            img_anomaly[i:i+move,:,0] = img_anomaly[i:i+move,:,0]*2
-            img_normal[:,i:i+move,0] = img_normal[:,i:i+move,0]*2
-            img_anomaly[:,i:i+move,0] = img_anomaly[:,i:i+move,0]*2
+        img_normal, img_anomaly = Model.recalculate_conner_score(img_normal,img_anomaly)
+        # only use reconstruct loss
+        # if np.amax(img_anomaly > 2000):
+        #     result = True
 
         img_max = np.max([img_normal[:,:,0], img_anomaly[:,:,0]])
         img_min = np.min([img_normal[:,:,0], img_anomaly[:,:,0]])
         img_normal = (img_normal[:,:,0]-img_min)/(img_max-img_min) * 9 + 1
         img_anomaly = (img_anomaly[:,:,0]-img_min)/(img_max-img_min) * 9 + 1
 
-        # img_normal = np.reshape(img_normal, [8,8,8,8])
-        # img_normal = img_normal[:,0,:,0]
-        # img_normal = np.reshape(img_normal, [8,8])
-        # print(img_normal)
-        #
-        # img_anomaly = np.reshape(img_anomaly, [8,8,8,8])
-        # img_anomaly = img_anomaly[:,0,:,0]
-        # img_anomaly = np.reshape(img_anomaly, [8,8])
-        # print(img_anomaly)
-        # exit()
         img_result = img_anomaly[:,:]-img_normal[:,:]
 
+        img_result = np.reshape(img_result, [int(data_shape[0]/move),move,int(data_shape[1]/move),move])
+        img_result = img_result[:,0,:,0]
+        img_result = np.reshape(img_result, [int(data_shape[0]/move),int(data_shape[1]/move)])
+
         # print(np.amax(img_result))
-        if np.amax(img_result) > thread_hold:
-            result = True
-            #result = False
+        if menseki == 1:
+            if np.amax(img_result) > thread_hold:
+                result = True
+        else:
+            point_list = np.where(img_result > 6)
+            # print(point_list)
+            number_cell_ano = len(point_list[0])
+            #check acreage of anomaly
+            if number_cell_ano >= menseki:
+                for index,(x,y) in enumerate(zip(point_list[0],point_list[1])):
+                    temp_list_x = np.delete(point_list[0],index)
+                    temp_list_y = np.delete(point_list[1],index)
+                    if Model.max_acreage_of_point((temp_list_x,temp_list_y),x,y,1) >= menseki:
+                        result = True
+                        break
         return result
+
+    #check point is near one element in list_point
+    @staticmethod
+    def max_acreage_of_point(point_list, point_x,point_y,area=1):
+        result = [area]
+        for index,(x,y) in enumerate(zip(point_list[0],point_list[1])):
+            if abs(x-point_x) <= 1 and abs(y-point_y) <= 1:
+                temp_list_x = np.delete(point_list[0],index)
+                temp_list_y = np.delete(point_list[1],index)
+                result.append(Model.max_acreage_of_point((temp_list_x,temp_list_y),x,y,area+1))
+        return max(result)
+
+
+    @staticmethod
+    def recalculate_conner_score(img_normal, img_anomaly):
+        #recalculate conner cell loss
+        for i in (0,data_shape[0]-move):
+            img_normal[i:i+move,:,0] = img_normal[i:i+move,:,0]* 2
+            img_anomaly[i:i+move,:,0] = img_anomaly[i:i+move,:,0]*2
+            img_normal[:,i:i+move,0] = img_normal[:,i:i+move,0]*2
+            img_anomaly[:,i:i+move,0] = img_anomaly[:,i:i+move,0]*2
+        return img_normal, img_anomaly
 
     @staticmethod
     def get_max_loss_level(loss,loss_ano,height,width):
@@ -375,32 +413,15 @@ class Model:
                 img_anomaly[i*move:i*move+height, j*move:j*move+width, 0] +=  loss_ano[z]
                 z +=1
 
-        #recalculate conner cell loss
-        for i in (0,int((data_shape[0]-height)/move)-move-1):
-            img_normal[i:i+move,:,0] = img_normal[i:i+move,:,0]* 2
-        img_anomaly[i:i+move,:,0] = img_anomaly[i:i+move,:,0]*2
-        img_normal[:,i:i+move,0] = img_normal[:,i:i+move,0]*2
-        img_anomaly[:,i:i+move,0] = img_anomaly[:,i:i+move,0]*2
+        img_normal, img_anomaly = Model.recalculate_conner_score(img_normal,img_anomaly)
 
         img_max = np.max([img_normal[:,:,0], img_anomaly[:,:,0]])
         img_min = np.min([img_normal[:,:,0], img_anomaly[:,:,0]])
         img_normal = (img_normal[:,:,0]-img_min)/(img_max-img_min) * 9 + 1
         img_anomaly = (img_anomaly[:,:,0]-img_min)/(img_max-img_min) * 9 + 1
 
-        #debug code
-        # img_normal = np.reshape(img_normal, [8,8,8,8])
-        # img_normal = img_normal[:,0,:,0]
-        # img_normal = np.reshape(img_normal, [8,8])
-        # print(img_normal)
-        #
-        # img_anomaly = np.reshape(img_anomaly, [8,8,8,8])
-        # img_anomaly = img_anomaly[:,0,:,0]
-        # img_anomaly = np.reshape(img_anomaly, [8,8])
-        # print(img_anomaly)
-        # exit()
         img_result = img_anomaly[:,:]-img_normal[:,:]
 
-        # print(np.amax(img_result))
         return np.amax(img_result)
 
     def print_eval(self,dir_name, base_img, model_id):
@@ -434,7 +455,7 @@ class Model:
                 if pin_normal is not None:
                     test_normal_list.append(pin_normal[i*64:i*64+data_shape[0],:])
                 else:
-                    Model.find_compare_img(img_1pin_anomaly[i*64:i*64+data_shape[0],:],i)
+                    test_normal_list.append(Model.find_compare_img(img_1pin_anomaly[i*64:i*64+data_shape[0],:],i))
         # test_normal_list = []
         # test_normal_list.append(cv2.imread('./kin_train/00/000001.png'))
         # test_normal_list.append(cv2.imread('./kin_train/01/000001.png'))
@@ -454,6 +475,7 @@ class Model:
     # 3. pixel move
     # output: sequence of part anomaly. None if normal image
     def detect(self, pin_normal, list_pin_anomaly):
+        num_of_pin = len(list_pin_anomaly)
         x_normal_list, x_anomaly_list = self.pre_process(pin_normal, list_pin_anomaly)
         height = input_shape[0]
         width = input_shape[1]
@@ -503,24 +525,25 @@ class Model:
                 loss_ano_one_img = loss_ano[i*number_of_input:(i+1)*number_of_input]
                 result.append(Model.get_max_loss_level(loss_one_img,loss_ano_one_img,height,width))
         print("time for hitmap",time.time() - start)
-        return result[0:18:2], result[1:18:2]
+        return [result[i:num_of_pin*self.number_of_model:num_of_pin] for i in range(num_of_pin)]
 
-    def save_reconstruct_img(self,dir, model_id):
-        for file_name in os.listdir(dir):
+    def save_reconstruct_img(self,direct, model_id):
+        for file_name in os.listdir(direct):
             print(file_name)
-            img = cv2.imread(dir + "/" + file_name)
+            img = cv2.imread(direct + "/" + file_name)
             img = img / 255
             food = []
-            for i in range(4):
-                for j in range(4):
-                    food.append(img[i*16:(i+1)*16,j*16:(j+1)*16])
+            for i in range((data_shape[0]-input_shape[0])/move +1):
+                for j in range((data_shape[1]-input_shape[1])/move +1):
+                    food.append(img[i*move:i*move+input_shape[1], j*move:j*move+input_shape[0], :])
             result = self.session.run([self.outputs_mu_list[model_id]],feed_dict={self.input_list[model_id]:np.float32(food)})
-            reconstruct = np.zeros([64,64,3])
+            reconstruct = np.zeros([data_shape[0],data_shape[1],3])
             z = 0
-            for i in range(4):
-                for j in range(4):
-                    reconstruct[i*16:(i+1)*16,j*16:(j+1)*16] = result[0][z]
+            for i in range((data_shape[0]-input_shape[0])/move +1):
+                for j in range((data_shape[1]-input_shape[1])/move +1):
+                    reconstruct[i*move:i*move+input_shape[1], j*move:j*move+input_shape[0], :] = result[0][z]
                     z+=1
+
             if not os.path.exists("fukugen"):
                 os.makedirs("fukugen")
             cv2.imwrite("fukugen/" + file_name ,reconstruct*255)
