@@ -365,9 +365,8 @@ class Model:
                 result = True
         else:
             point_list = list(np.where(img_result > thread_hold))
-            # print(point_list)
             number_cell_ano = len(point_list[0])
-            #check acreage of anomaly
+            #check area of anomaly
             if number_cell_ano >= menseki:
                 while len(point_list[0]) > 0:
                     # pop first element
@@ -375,14 +374,14 @@ class Model:
                     point_list[0] = np.delete(point_list[0],0)
                     y = point_list[1][0]
                     point_list[1] = np.delete(point_list[1],0)
-                    if Model.max_acreage_of_point(list((point_list[0],point_list[1])),x,y,1) >= menseki:
+                    if Model.max_area_of_point(list((point_list[0],point_list[1])),x,y,1) >= menseki:
                         result = True
                         break
         return result
 
-    #get max acreage of point
+    #get max area of point (number of point adjacent)
     @staticmethod
-    def max_acreage_of_point(point_list, point_x,point_y,area=1):
+    def max_area_of_point(point_list, point_x,point_y,area=1):
         result = [area]
         temp_list = [[],[]]
         while len(point_list[0]) > 0:
@@ -392,7 +391,7 @@ class Model:
                 # remove point have been checked
                 point_list[0] = np.delete(point_list[0],0)
                 point_list[1] = np.delete(point_list[1],0)
-                result.append(Model.max_acreage_of_point(list((point_list[0],point_list[1])),x,y,area+1))
+                result.append(Model.max_area_of_point(list((point_list[0],point_list[1])),x,y,area+1))
             else:
                 # save point have'nt been checked'
                 temp_list[0].append(x)
