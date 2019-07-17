@@ -364,28 +364,43 @@ class Model:
             if np.amax(img_result) > thread_hold:
                 result = True
         else:
-            point_list = np.where(img_result > 6)
+            point_list = list(np.where(img_result > thread_hold))
             # print(point_list)
             number_cell_ano = len(point_list[0])
             #check acreage of anomaly
             if number_cell_ano >= menseki:
-                for index,(x,y) in enumerate(zip(point_list[0],point_list[1])):
-                    temp_list_x = np.delete(point_list[0],index)
-                    temp_list_y = np.delete(point_list[1],index)
-                    if Model.max_acreage_of_point((temp_list_x,temp_list_y),x,y,1) >= menseki:
+                while len(point_list[0]) > 0:
+                    # pop first element
+                    x = point_list[0][0]
+                    point_list[0] = np.delete(point_list[0],0)
+                    y = point_list[1][0]
+                    point_list[1] = np.delete(point_list[1],0)
+                    if Model.max_acreage_of_point(list((point_list[0],point_list[1])),x,y,1) >= menseki:
                         result = True
                         break
         return result
 
-    #check point is near one element in list_point
+    #get max acreage of point
     @staticmethod
     def max_acreage_of_point(point_list, point_x,point_y,area=1):
         result = [area]
-        for index,(x,y) in enumerate(zip(point_list[0],point_list[1])):
+        temp_list = [[],[]]
+        while len(point_list[0]) > 0:
+            x = point_list[0][0]
+            y = point_list[1][0]
             if abs(x-point_x) <= 1 and abs(y-point_y) <= 1:
-                temp_list_x = np.delete(point_list[0],index)
-                temp_list_y = np.delete(point_list[1],index)
-                result.append(Model.max_acreage_of_point((temp_list_x,temp_list_y),x,y,area+1))
+                # remove point have been checked
+                point_list[0] = np.delete(point_list[0],0)
+                point_list[1] = np.delete(point_list[1],0)
+                result.append(Model.max_acreage_of_point(list((point_list[0],point_list[1])),x,y,area+1))
+            else:
+                # save point have'nt been checked'
+                temp_list[0].append(x)
+                temp_list[1].append(y)
+                point_list[0] = np.delete(point_list[0],0)
+                point_list[1] = np.delete(point_list[1],0)
+        point_list[0] = temp_list[0]
+        point_list[1] = temp_list[1]
         return max(result)
 
 
