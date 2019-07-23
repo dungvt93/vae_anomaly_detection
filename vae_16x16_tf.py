@@ -547,14 +547,14 @@ class Model:
             img = cv2.imread(direct + "/" + file_name)
             img = img / 255
             food = []
-            for i in range((data_shape[0]-input_shape[0])/move +1):
-                for j in range((data_shape[1]-input_shape[1])/move +1):
+            for i in range(int((data_shape[0]-input_shape[0])/move) +1):
+                for j in range(int((data_shape[1]-input_shape[1])/move) +1):
                     food.append(img[i*move:i*move+input_shape[1], j*move:j*move+input_shape[0], :])
             result = self.session.run([self.outputs_mu_list[model_id]],feed_dict={self.input_list[model_id]:np.float32(food)})
             reconstruct = np.zeros([data_shape[0],data_shape[1],3])
             z = 0
-            for i in range((data_shape[0]-input_shape[0])/move +1):
-                for j in range((data_shape[1]-input_shape[1])/move +1):
+            for i in range(int((data_shape[0]-input_shape[0])/move) +1):
+                for j in range(int((data_shape[1]-input_shape[1])/move) +1):
                     reconstruct[i*move:i*move+input_shape[1], j*move:j*move+input_shape[0], :] = result[0][z]
                     z+=1
 
