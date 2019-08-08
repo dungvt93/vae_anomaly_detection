@@ -3,10 +3,10 @@ import os
 
 
 source_folder = './test_origin/'
-target_folder = './train/'
+target_folder = './test/'
 
 for i in range(9):
-	if i == 3:
+	if i == 8:
 		if not os.path.exists(target_folder + '{:02d}'.format(i)):
 			print('Make folder' + target_folder + '{:02d}'.format(i))
 			os.mkdir(target_folder + '{:02d}'.format(i))
@@ -19,7 +19,7 @@ for file_name in os.listdir(source_folder):
 files = os.listdir(source_folder)
 for m in range(9):
 	count = 0
-	if m==3:
+	if m==8:
 		for i in range(len(files)):
 			file = files[i]
 			img = cv2.imread(source_folder + file)
