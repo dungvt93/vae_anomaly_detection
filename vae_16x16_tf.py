@@ -11,18 +11,8 @@ import pickle
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
-# network parameters
-input_shape=(16, 16, 3)
-move = 8
-batch_size = 32
-latent_dim = 2
-epochs = 5
-Nc = 16
-# dataset
-data_shape = [64,64,3]
-
 class Model:
-	def __init__(self):
+	def __init__(self, input_shape=(16, 16, 3), cell_shape = (64,64,3),img_shape=(64*9,64,3), move = 8):
 		#variable for model
 		self.number_of_model = 0
 		self.session = None
@@ -31,9 +21,13 @@ class Model:
 		self.cost_list = []
 		self.train_op_list = []
 		self.outputs_mu_list = []
+		self.input_shape = input_shape
+		self.cell_shape = cell_shape
+		self.img_shape = img_shape
+		self.move = move
 
 	@staticmethod
-	def init_model(namespace='model', input=None, training=True):
+	def init_model(namespace='model', input=None, Nc = 16, latent_dim = 2):
 		with tf.variable_scope(namespace):
 			out_put  = input
 
@@ -116,24 +110,24 @@ class Model:
 		x_out = np.array(x_out)
 		return x_out
 
-	@staticmethod
-	def create_data(train_folder,data_num, offset):
+	def create_data(self,train_folder,data_num, offset):
 		x_train = []
 		for idx,file_name in enumerate(os.listdir(train_folder)):
 			if idx >= offset:
 				image = cv2.imread(train_folder + file_name)
+				image = cv2.resize(image,(self.cell_shape[1],self.cell_shape[0]))
 				# print(file_name)
 				# print(random.choice(os.listdir(train_folder)))
 				# image = cv2.imread(train_folder+random.choice(os.listdir(train_folder)))
 
-				image = image.reshape(data_shape[0],data_shape[1],data_shape[2])
+				image = image.reshape(self.cell_shape[0],self.cell_shape[1],self.cell_shape[2])
 				image = image / 255
 				x_train.append(image)
 			if len(x_train) >= 500:
 				break
 		num_img = len(x_train)
 		x_train = np.array(x_train)
-		x_train = Model.cut_img(x_train, data_num, input_shape[0], input_shape[1])
+		x_train = Model.cut_img(x_train, data_num, self.input_shape[0], self.input_shape[1])
 		print(x_train.shape)
 		return  x_train, num_img
 
@@ -143,13 +137,15 @@ class Model:
 	# 3. number of model in combine model
 	# 4. sequence of model in combine model will be used to trainning
 	# 5. number of data for trainning (cut from image in folder image)
-	# 6. True if create new combine model, False if load exist combine model
-	# 7. True if continue trainning single model in combine model, False if reset and retrainning single model in combine model
-	def train(self, train_folder='./train/', model_path='./model/',number_of_model = 9, model_id=0, data_num=100000, new_combine_model=False, resume_single_model=False):
+	# 6. number of batch size
+	# 7. number of epochs
+	# 8. True if create new combine model, False if load exist combine model
+	# 9. True if continue trainning single model in combine model, False if reset and retrainning single model in combine model
+	def train(self, train_folder='./train/', model_path='./model/',number_of_model = 9, model_id=0, data_num=100000, batch_size = 32, epochs = 5, new_combine_model=False, resume_single_model=False):
 		self.number_of_model = number_of_model
 		tf.reset_default_graph()
 		for i in range(number_of_model):
-			self.input_list.append(tf.placeholder(tf.float32, shape=[None, input_shape[0], input_shape[1], input_shape[2]]))
+			self.input_list.append(tf.placeholder(tf.float32, shape=[None, self.input_shape[0], self.input_shape[1], self.input_shape[2]]))
 			score , cost, train_op, _ = Model.init_model(namespace='model_' + str(i),input=self.input_list[i], training=True)
 			self.score_list.append(score)
 			self.cost_list.append(cost)
@@ -167,7 +163,7 @@ class Model:
 				self.session.run(tf.initialize_variables(tf.global_variables('model_' + str(model_id) + '\D')))
 
 		#get data
-		number_train_files = len(os.listdir(train_folder)) # dir is your directory path)
+		number_train_files = len(os.listdir(train_folder))
 		for i in range(epochs):
 			offset = 0
 			while offset < number_train_files:
@@ -190,7 +186,7 @@ class Model:
 		self.number_of_model = number_of_model
 		tf.reset_default_graph()
 		for i in range(number_of_model):
-			self.input_list.append(tf.placeholder(tf.float32, shape=[None, input_shape[0], input_shape[1], input_shape[2]]))
+			self.input_list.append(tf.placeholder(tf.float32, shape=[None, self.input_shape[0], self.input_shape[1], self.input_shape[2]]))
 			score , cost, train_op, output_mu, = Model.init_model(namespace='model_' + str(i), input=self.input_list[i], training=True)
 			self.score_list.append(score)
 			self.cost_list.append(cost)
@@ -211,8 +207,8 @@ class Model:
 
 	#ヒートマップの計算
 	def evaluate_img(self, x_normal_path, x_anomaly_path, model_id=0, im_show=False):
-		height = input_shape[0]
-		width = input_shape[1]
+		height = self.input_shape[0]
+		width = self.input_shape[1]
 
 		x_anomaly = cv2.imread(x_anomaly_path)
 		#find compare img
@@ -222,17 +218,19 @@ class Model:
 		else:
 			x_normal = cv2.imread(x_normal_path)
 
-		x_anomaly = x_anomaly.reshape(data_shape[0],data_shape[1],data_shape[2])
+		x_anomaly = cv2.resize(x_anomaly,(self.cell_shape[1],self.cell_shape[0]))
+		x_anomaly = x_anomaly.reshape(self.cell_shape[0],self.cell_shape[1],self.cell_shape[2])
 		x_anomaly = x_anomaly / 255
-		x_normal = x_normal.reshape(data_shape[0],data_shape[1],data_shape[2])
+		x_normal = cv2.resize(x_normal,(self.cell_shape[1],self.cell_shape[0]))
+		x_normal = x_normal.reshape(self.cell_shape[0],self.cell_shape[1],self.cell_shape[2])
 		x_normal = x_normal / 255
 
 		x_sub_normal_list = []
 		x_sub_anomaly_list = []
-		for i in range(int((x_normal.shape[0]-height)/move)+1):
-			for j in range(int((x_normal.shape[1]-width)/move)+1):
-				x_sub_normal = x_normal[i*move:i*move+height, j*move:j*move+width, :]
-				x_sub_anomaly = x_anomaly[i*move:i*move+height, j*move:j*move+width, :]
+		for i in range(int((x_normal.shape[0]-height)/self.move)+1):
+			for j in range(int((x_normal.shape[1]-width)/self.move)+1):
+				x_sub_normal = x_normal[i*self.move:i*self.move+height, j*self.move:j*self.move+width, :]
+				x_sub_anomaly = x_anomaly[i*self.move:i*self.move+height, j*self.move:j*self.move+width, :]
 				x_sub_normal = x_sub_normal.reshape(height, width, 3)
 				x_sub_anomaly = x_sub_anomaly.reshape(height, width, 3)
 				x_sub_normal_list.append(x_sub_normal)
@@ -245,30 +243,29 @@ class Model:
 		#異常のスコア
 		loss_ano = self.session.run([self.score_list[model_id]],feed_dict={self.input_list[model_id]:np.float32(x_sub_anomaly_list)})
 
-		img_normal, img_anomaly = Model.create_loss_img(loss[0],loss_ano[0])
+		img_normal, img_anomaly = self.create_loss_img(loss[0],loss_ano[0])
 		if im_show:
 			self.save_loss_map(img_normal,img_anomaly)
 			self.save_heat_map(x_normal, x_anomaly, img_normal, img_anomaly)
 		else:
 			return Model.is_anomaly(img_normal, img_anomaly)
-	@staticmethod
-	def create_loss_img(loss, loss_ano):
-		img_normal = np.zeros(data_shape)
-		img_anomaly = np.zeros(data_shape)
+
+	def create_loss_img(self,loss, loss_ano):
+		img_normal = np.zeros(self.cell_shape)
+		img_anomaly = np.zeros(self.cell_shape)
 		z = 0
-		for i in range(int((data_shape[0] - input_shape[0]) / move) + 1):
-			for j in range(int((data_shape[1] - input_shape[1]) / move) + 1):
+		for i in range(int((self.cell_shape[0] - self.input_shape[0]) / self.move) + 1):
+			for j in range(int((self.cell_shape[1] - self.input_shape[1]) / self.move) + 1):
 				# 正常のスコア
-				img_normal[i * move:i * move + input_shape[0], j * move:j * move + input_shape[1], 0] += loss[z]
+				img_normal[i * self.move:i * self.move + self.input_shape[0], j * self.move:j * self.move + self.input_shape[1], 0] += loss[z]
 
 				# 異常のスコア
-				img_anomaly[i * move:i * move + input_shape[0], j * move:j * move + input_shape[1], 0] += loss_ano[z]
+				img_anomaly[i * self.move:i * self.move + self.input_shape[0], j * self.move:j * self.move + self.input_shape[1], 0] += loss_ano[z]
 				z += 1
-		img_normal, img_anomaly = Model.recalculate_conner_score(img_normal,img_anomaly)
+		img_normal, img_anomaly = self.recalculate_conner_score(img_normal,img_anomaly)
 		return img_normal, img_anomaly
 
-	@staticmethod
-	def save_loss_map(img_normal,img_anomaly):
+	def save_loss_map(self,img_normal,img_anomaly):
 		if not os.path.exists("loss_file"):
 			os.mkdir("loss_file")
 		# with open("loss_file/img_normal","wb") as fp:
@@ -277,13 +274,16 @@ class Model:
 		#     pickle.dump(img_anomaly,fp)
 		img_normal = img_normal[:,:,0]
 		img_anomaly = img_anomaly[:,:,0]
-		img_normal = np.reshape(img_normal, [8,8,8,8])
-		img_normal = img_normal[:,0,:,0]
-		img_normal = np.reshape(img_normal, [8,8])
 
-		img_anomaly = np.reshape(img_anomaly, [8,8,8,8])
+		img_normal = np.reshape(img_normal, [int(self.cell_shape[0]/self.move),self.move,int(self.cell_shape[1]/self.move),self.move])
+		img_normal = img_normal[:,0,:,0]
+		img_normal = np.reshape(img_normal, [int(self.cell_shape[0]/self.move),int(self.cell_shape[1]/self.move)])
+
+
+		img_anomaly = np.reshape(img_anomaly, [int(self.cell_shape[0]/self.move),self.move,int(self.cell_shape[1]/self.move),self.move])
 		img_anomaly = img_anomaly[:,0,:,0]
-		img_anomaly = np.reshape(img_anomaly, [8,8])
+		img_anomaly = np.reshape(img_anomaly, [int(self.cell_shape[0]/self.move),int(self.cell_shape[1]/self.move)])
+
 		# np.savetxt("loss_file/img_normal",img_normal,'%5d')
 		np.savetxt("loss_file/img_anomaly",img_anomaly,'%5d')
 
@@ -389,18 +389,16 @@ class Model:
 		point_list[1] = temp_list[1]
 		return max(result)
 
-	@staticmethod
-	def recalculate_conner_score(img_normal, img_anomaly):
+	def recalculate_conner_score(self,img_normal, img_anomaly):
 		#recalculate conner cell loss
-		for i in (0,data_shape[0]-move):
-			img_normal[i:i+move,:,0] = img_normal[i:i+move,:,0]* 2
-			img_anomaly[i:i+move,:,0] = img_anomaly[i:i+move,:,0]*2
-			img_normal[:,i:i+move,0] = img_normal[:,i:i+move,0]*2
-			img_anomaly[:,i:i+move,0] = img_anomaly[:,i:i+move,0]*2
+		for i in (0,self.cell_shape[0]-self.move):
+			img_normal[i:i+self.move,:,0] = img_normal[i:i+self.move,:,0]* 2
+			img_anomaly[i:i+self.move,:,0] = img_anomaly[i:i+self.move,:,0]*2
+			img_normal[:,i:i+self.move,0] = img_normal[:,i:i+self.move,0]*2
+			img_anomaly[:,i:i+self.move,0] = img_anomaly[:,i:i+self.move,0]*2
 		return img_normal, img_anomaly
 
-	@staticmethod
-	def get_subtraction_score_result(img_normal,img_anomaly):
+	def get_subtraction_score_result(self,img_normal,img_anomaly):
 		img_max = np.max([img_normal[:,:,0], img_anomaly[:,:,0]])
 		img_min = np.min([img_normal[:,:,0], img_anomaly[:,:,0]])
 		img_normal = (img_normal[:,:,0]-img_min)/(img_max-img_min) * 9 + 1
@@ -408,9 +406,9 @@ class Model:
 
 		img_result = img_anomaly[:,:]-img_normal[:,:]
 
-		img_result = np.reshape(img_result, [int(data_shape[0]/move),move,int(data_shape[1]/move),move])
+		img_result = np.reshape(img_result, [int(self.cell_shape[0]/self.move),self.move,int(self.cell_shape[1]/self.move),self.move])
 		img_result = img_result[:,0,:,0]
-		img_result = np.reshape(img_result, [int(data_shape[0]/move),int(data_shape[1]/move)])
+		img_result = np.reshape(img_result, [int(self.cell_shape[0]/self.move),int(self.cell_shape[1]/self.move)])
 
 		return img_result
 
@@ -436,17 +434,17 @@ class Model:
 		test_normal_list = []
 		test_anomaly_list = []
 		if pin_normal is not None:
-			pin_normal = cv2.resize(pin_normal,(data_shape[1],data_shape[0]*9))
+			pin_normal = cv2.resize(pin_normal,(self.cell_shape[1],self.cell_shape[0]*9))
 		for img_1pin_anomaly in list_pin_anomaly:
 			i = 0
-			img_1pin_anomaly = cv2.resize(img_1pin_anomaly,(data_shape[1],data_shape[0]*9))
-			for y in range(int(pin_normal.shape[0]/data_shape[0])):
-				for x in range(int(pin_normal.shape[1]/data_shape[1])):
-					cut_img = img_1pin_anomaly[y*data_shape[0]:y*data_shape[0]+data_shape[0],x*data_shape[1]:x*data_shape[1]+data_shape[1]]
+			img_1pin_anomaly = cv2.resize(img_1pin_anomaly,(self.cell_shape[1],self.cell_shape[0]*9))
+			for y in range(int(pin_normal.shape[0]/self.cell_shape[0])):
+				for x in range(int(pin_normal.shape[1]/self.cell_shape[1])):
+					cut_img = img_1pin_anomaly[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]]
 					cv2.imwrite("test%2d.jpg"%i,cut_img)
 					test_anomaly_list.append(cut_img)
-					test_normal_list.append(pin_normal[y*data_shape[0]:y*data_shape[0]+data_shape[0],x*data_shape[1]:x*data_shape[1]+data_shape[1]])
-					# cv2.imwrite("compare%2d.jpg"%i,pin_normal[y*data_shape[0]:y*data_shape[0]+data_shape[0],x*data_shape[1]:x*data_shape[1]+data_shape[1]])
+					test_normal_list.append(pin_normal[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]])
+					# cv2.imwrite("compare%2d.jpg"%i,pin_normal[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]])
 					i+=1
 		return  test_normal_list, test_anomaly_list
 
@@ -459,9 +457,9 @@ class Model:
 	def detect(self, pin_normal, list_pin_anomaly):
 		num_of_pin = len(list_pin_anomaly)
 		x_normal_list, x_anomaly_list = self.pre_process(pin_normal, list_pin_anomaly)
-		height = input_shape[0]
-		width = input_shape[1]
-		number_of_input = (int((data_shape[0]-height)/move) + 1)* (int((data_shape[1]-width)/move) + 1)  #number of input_shape of each part image
+		height = self.input_shape[0]
+		width = self.input_shape[1]
+		number_of_input = (int((self.cell_shape[0]-height)/self.move) + 1)* (int((self.cell_shape[1]-width)/self.move) + 1)  #number of input_shape of each part image
 		feed_dict_normal = {}
 		feed_dict_anomaly = {}
 		#list cut_image of 1 pin (compare image)
@@ -471,14 +469,14 @@ class Model:
 		# preprocess data
 
 		for index, (x_normal, x_anomaly) in enumerate(zip(x_normal_list,x_anomaly_list)):
-			x_normal = x_normal.reshape(1,data_shape[0],data_shape[1],data_shape[2])
+			x_normal = x_normal.reshape(1,self.cell_shape[0],self.cell_shape[1],self.cell_shape[2])
 			x_normal = x_normal / 255
-			x_anomaly = x_anomaly.reshape(1,data_shape[0],data_shape[1],data_shape[2])
+			x_anomaly = x_anomaly.reshape(1,self.cell_shape[0],self.cell_shape[1],self.cell_shape[2])
 			x_anomaly = x_anomaly / 255
-			for i in range(int((data_shape[0]-height)/move)+1):
-				for j in range(int((data_shape[1]-width)/move)+1):
-					x_sub_normal = x_normal[0, i*move:i*move+height, j*move:j*move+width, :]
-					x_sub_anomaly = x_anomaly[0, i*move:i*move+height, j*move:j*move+width, :]
+			for i in range(int((self.cell_shape[0]-height)/self.move)+1):
+				for j in range(int((self.cell_shape[1]-width)/self.move)+1):
+					x_sub_normal = x_normal[0, i*self.move:i*self.move+height, j*self.move:j*self.move+width, :]
+					x_sub_anomaly = x_anomaly[0, i*self.move:i*self.move+height, j*self.move:j*self.move+width, :]
 					x_sub_normal = x_sub_normal.reshape(height, width, 3)
 					x_sub_anomaly = x_sub_anomaly.reshape( height, width, 3)
 					x_sub_normal_list[index % self.number_of_model].append(x_sub_normal)
@@ -516,51 +514,59 @@ class Model:
 			img = cv2.imread(directory + "/" + file_name)
 			img = img / 255
 			food = []
-			for i in range(int((data_shape[0]-input_shape[0])/move) +1):
-				for j in range(int((data_shape[1]-input_shape[1])/move) +1):
-					food.append(img[i*move:i*move+input_shape[1], j*move:j*move+input_shape[0], :])
+			for i in range(int((self.cell_shape[0]-self.input_shape[0])/self.move) +1):
+				for j in range(int((self.cell_shape[1]-self.input_shape[1])/self.move) +1):
+					food.append(img[i*self.move:i*self.move+self.input_shape[1], j*self.move:j*self.move+self.input_shape[0], :])
 			result = self.session.run([self.outputs_mu_list[model_id]],feed_dict={self.input_list[model_id]:np.float32(food)})
-			reconstruct = np.zeros([data_shape[0],data_shape[1],3])
+			reconstruct = np.zeros([self.cell_shape[0],self.cell_shape[1],3])
 			z = 0
-			for i in range(int((data_shape[0]-input_shape[0])/move) +1):
-				for j in range(int((data_shape[1]-input_shape[1])/move) +1):
-					reconstruct[i*move:i*move+input_shape[1], j*move:j*move+input_shape[0], :] = result[0][z]
+			for i in range(int((self.cell_shape[0]-self.input_shape[0])/self.move) +1):
+				for j in range(int((self.cell_shape[1]-self.input_shape[1])/self.move) +1):
+					reconstruct[i*self.move:i*self.move+self.input_shape[1], j*self.move:j*self.move+self.input_shape[0], :] = result[0][z]
 					z+=1
 
 			if not os.path.exists("fukugen"):
 				os.makedirs("fukugen")
 			cv2.imwrite("fukugen/" + file_name ,reconstruct*255)
 
-model = Model()
+model = Model(
+	input_shape=(16,16,3),
+	cell_shape=(64,64,3),
+	img_shape=(64*9,64,3),
+	move=8
+)
 
-temp = 3
+temp = 8
 
-# model.train(
-#    train_folder='./train/%02d' % temp + '/',
-#    model_path='./model_tf/model',
-#    data_num=100000,
-#    number_of_model=9,
-#    model_id=temp,
-#    new_combine_model=True,
-#    resume_single_model=False)
+model.train(
+	train_folder='./train/%02d' % temp + '/',
+	model_path='./model_tf/model',
+	data_num=100000,
+	number_of_model=9,
+	model_id=temp,
+	new_combine_model=True,
+	resume_single_model=False,
+	batch_size=32,
+	epochs=5)
 
 model.load_model(model_path='./model_tf/model',number_of_model=9)
 
 # run 2 pin
-for i in range(1):
-	start = time.time()
-	input_normal = cv2.imread('./valid/000000.png')
-	list_input_anomaly = [cv2.imread('./valid/test.png')]
-	print(model.detect(input_normal,list_input_anomaly))
-	print(time.time()-start)
+# for i in range(1):
+# 	start = time.time()
+# 	input_normal = cv2.imread('./valid/000000.png')
+# 	list_input_anomaly = [cv2.imread('./valid/test.png')]
+# 	print(model.detect(input_normal,list_input_anomaly))
+# 	print(time.time()-start)
 
 # test_normal = None
-# test_normal = './train/%02d' % temp + '/000847.png'
+test_normal = './train/%02d' % temp + '/000847.png'
 # test_anomaly = './test/%02d' % temp + '/000049.png'
+test_anomaly = './valid/test_08.png'
 #
-# model.print_eval("./test/03/",test_normal,model_id=temp)
+# model.print_eval("./test/08/",test_normal,model_id=temp)
 # exit()
 
-# model.evaluate_img(test_normal, test_anomaly, im_show=True, model_id=temp)
+model.evaluate_img(test_normal, test_anomaly, im_show=True, model_id=temp)
 
 # model.save_reconstruct_img("dump" ,temp)
