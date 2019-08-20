@@ -79,6 +79,7 @@ class Model:
 	@staticmethod
 	def compute_loss(inputs, z_log_var, z_mean, outputs_mu,outputs_sigma_2):
 		m_vae_loss = (tf.layers.flatten(inputs) - tf.layers.flatten(outputs_mu))**2 / tf.layers.flatten(outputs_sigma_2)
+		# m_vae_loss = (tf.reshape(inputs, [-1]) - tf.reshape(outputs_mu, [-1]))**2 / tf.reshape(outputs_sigma_2, [-1])
 		m_vae_loss = 0.5 * tf.reduce_sum(m_vae_loss)
 
 		a_vae_loss = tf.log(2 * 3.14 * tf.layers.flatten(outputs_sigma_2))
@@ -123,7 +124,7 @@ class Model:
 				image = image.reshape(self.cell_shape[0],self.cell_shape[1],self.cell_shape[2])
 				image = image / 255
 				x_train.append(image)
-			if len(x_train) >= 500:
+			if len(x_train) >= 2000:
 				break
 		num_img = len(x_train)
 		x_train = np.array(x_train)
@@ -146,7 +147,7 @@ class Model:
 		tf.reset_default_graph()
 		for i in range(number_of_model):
 			self.input_list.append(tf.placeholder(tf.float32, shape=[None, self.input_shape[0], self.input_shape[1], self.input_shape[2]]))
-			score , cost, train_op, _ = Model.init_model(namespace='model_' + str(i),input=self.input_list[i], training=True)
+			score , cost, train_op, _ = Model.init_model(namespace='model_' + str(i),input=self.input_list[i])
 			self.score_list.append(score)
 			self.cost_list.append(cost)
 			self.train_op_list.append(train_op)
@@ -167,7 +168,7 @@ class Model:
 		for i in range(epochs):
 			offset = 0
 			while offset < number_train_files:
-				x_train,num_img = Model.create_data(train_folder,data_num, offset)
+				x_train,num_img = self.create_data(train_folder,data_num, offset)
 				offset += num_img
 				aver_train_loss = 0
 				for j in range(0, data_num, batch_size):
@@ -187,7 +188,7 @@ class Model:
 		tf.reset_default_graph()
 		for i in range(number_of_model):
 			self.input_list.append(tf.placeholder(tf.float32, shape=[None, self.input_shape[0], self.input_shape[1], self.input_shape[2]]))
-			score , cost, train_op, output_mu, = Model.init_model(namespace='model_' + str(i), input=self.input_list[i], training=True)
+			score , cost, train_op, output_mu, = Model.init_model(namespace='model_' + str(i), input=self.input_list[i])
 			self.score_list.append(score)
 			self.cost_list.append(cost)
 			self.train_op_list.append(train_op)
@@ -248,7 +249,7 @@ class Model:
 			self.save_loss_map(img_normal,img_anomaly)
 			self.save_heat_map(x_normal, x_anomaly, img_normal, img_anomaly)
 		else:
-			return Model.is_anomaly(img_normal, img_anomaly)
+			return self.is_anomaly(img_normal, img_anomaly)
 
 	def create_loss_img(self,loss, loss_ano):
 		img_normal = np.zeros(self.cell_shape)
@@ -338,14 +339,14 @@ class Model:
 	# 3. height of input model
 	# 4. width of input model
 	# output: True if anomaly, False if normal
-	@staticmethod
-	def is_anomaly(img_normal, img_anomaly, thres_hold=7.5, menseki=1):
+
+	def is_anomaly(self, img_normal, img_anomaly, thres_hold=7.5, menseki=1):
 		result = False
 		# only use reconstruct loss
 		# if np.amax(img_anomaly > 2000):
 		#     result = True
 
-		img_result = Model.get_subtraction_score_result(img_normal,img_anomaly)
+		img_result = self.get_subtraction_score_result(img_normal,img_anomaly)
 		if menseki == 1:
 			if np.amax(img_result) > thres_hold:
 				result = True
@@ -441,7 +442,7 @@ class Model:
 			for y in range(int(pin_normal.shape[0]/self.cell_shape[0])):
 				for x in range(int(pin_normal.shape[1]/self.cell_shape[1])):
 					cut_img = img_1pin_anomaly[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]]
-					cv2.imwrite("test%2d.jpg"%i,cut_img)
+					# cv2.imwrite("test%2d.jpg"%i,cut_img)
 					test_anomaly_list.append(cut_img)
 					test_normal_list.append(pin_normal[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]])
 					# cv2.imwrite("compare%2d.jpg"%i,pin_normal[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]])
@@ -503,8 +504,8 @@ class Model:
 			for i in range(int(len(loss)/number_of_input)): #number_of_real image loop
 				loss_one_img = loss[i*number_of_input:(i+1)*number_of_input]
 				loss_ano_one_img = loss_ano[i*number_of_input:(i+1)*number_of_input]
-				img_normal, img_anomaly = Model.create_loss_img(loss_one_img,loss_ano_one_img)
-				result.append(np.amax(Model.get_subtraction_score_result(img_normal,img_anomaly)))
+				img_normal, img_anomaly = self.create_loss_img(loss_one_img,loss_ano_one_img)
+				result.append(np.amax(self.get_subtraction_score_result(img_normal,img_anomaly)))
 		print("time for hitmap",time.time() - start)
 		return [result[i:num_of_pin*self.number_of_model:num_of_pin] for i in range(num_of_pin)]
 
@@ -529,44 +530,54 @@ class Model:
 				os.makedirs("fukugen")
 			cv2.imwrite("fukugen/" + file_name ,reconstruct*255)
 
-model = Model(
-	input_shape=(16,16,3),
-	cell_shape=(64,64,3),
-	img_shape=(64*9,64,3),
-	move=8
-)
+if __name__ == "__main__":
+	# for temp in range(9):
+	# 	# temp = 0
+	# 	model = Model()
+	# 	model.train(
+	# 		train_folder='../20190808_dataset/train_vae/%02d' % temp + '/',
+	# 		model_path='../20190808_dataset/model_vae/model',
+	# 		data_num=100000,
+	# 		number_of_model=9,
+	# 		model_id=temp,
+	# 		new_combine_model=False,
+	# 		resume_single_model=False,
+	# 		batch_size=512,
+	# 		epochs=10
+	# 		)
+	# 	del model
 
-temp = 8
+	temp = 0
+	model = Model()
+	model.load_model(model_path='../20190808_dataset/model_vae/model',number_of_model=9)
+    # #
+    # # # #eval pin
+    # directory = "../20190808_dataset/test/NG/"
+    # for file_name in os.listdir(directory):
+		# # start = time.time()
+		# input_normal = cv2.imread('../20190808_dataset/compare.png')
+		# list_input_anomaly = [cv2.imread(directory + file_name)]
+		# # list_input_anomaly = [cv2.imread("E:/takasaki_dataset/20190805_light_dataset/test/OK/20190805134313459047_OK.png")]
+		# for result in  model.detect(input_normal,list_input_anomaly):
+		# 	img = cv2.resize(list_input_anomaly[0],(64,64*9))
+		# 	for score in result:
+		# 		if score > 8:
+		# 			idx = result.index(score)
+		# 			img = cv2.rectangle(img,(0,idx * 64),(64,idx*64+64),(0,255,0),1)
+		# 			cv2.imwrite("result/" + file_name, img)
 
-model.train(
-	train_folder='./train/%02d' % temp + '/',
-	model_path='./model_tf/model',
-	data_num=100000,
-	number_of_model=9,
-	model_id=temp,
-	new_combine_model=True,
-	resume_single_model=False,
-	batch_size=32,
-	epochs=5)
+				# print(file_name + " " + str(max_score) + " " + str(idx))
+	# print(time.time()-start)
 
-model.load_model(model_path='./model_tf/model',number_of_model=9)
+	test_normal = "../20190808_dataset/train_vae/%02d" % temp + "/000000.png"
+	# test_normal = './20190808_dataset.png'
+	test_anomaly = "../20190808_dataset/test_vae/NG/%02d" % temp + "/000006.png"
+	#
+	model.print_eval("../20190808_dataset/test_vae/OK/%02d" % temp,test_normal,model_id=temp)
+	print("***********************************************")
+	model.print_eval("../20190808_dataset/test_vae/NG/%02d" % temp,test_normal,model_id=temp)
+	# exit()
 
-# run 2 pin
-# for i in range(1):
-# 	start = time.time()
-# 	input_normal = cv2.imread('./valid/000000.png')
-# 	list_input_anomaly = [cv2.imread('./valid/test.png')]
-# 	print(model.detect(input_normal,list_input_anomaly))
-# 	print(time.time()-start)
-
-# test_normal = None
-test_normal = './train/%02d' % temp + '/000847.png'
-# test_anomaly = './test/%02d' % temp + '/000049.png'
-test_anomaly = './valid/test_08.png'
-#
-# model.print_eval("./test/08/",test_normal,model_id=temp)
-# exit()
-
-model.evaluate_img(test_normal, test_anomaly, im_show=True, model_id=temp)
+	# model.evaluate_img(test_normal, test_anomaly, im_show=True, model_id=temp)
 
 # model.save_reconstruct_img("dump" ,temp)
