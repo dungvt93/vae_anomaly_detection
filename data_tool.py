@@ -5,10 +5,11 @@ import sys
 import shutil
 
 if __name__ == "__main__":
-    source_folder = "../20190819_dataset_pin_3/train/"
-    des_folder = "./result/"
+    source_folder = "../20190819_dataset_pin_3_left/train_bonus/"
+    des_folder = "../20190819_dataset_pin_3_left/temp/"
     args = sys.argv
-    list_sequences = []
+    list_sequences = [45,49,50,51,56,60,62,76,81,92,175,181,204,220,233,344,379,579,745,746,
+                      747,797,798,799,800,801,802,803,869,880,883]
     if len(args) < 2:
         print("please select delete or copy or move option at parameter")
         exit()

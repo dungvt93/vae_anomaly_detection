@@ -2,8 +2,8 @@ import cv2
 import os
 
 
-source_folder = '../20190819_dataset_pin_3/train/'
-target_folder = '../20190819_dataset_pin_3/train_vae/'
+source_folder = '../20190819_dataset_pin_3_left/train/'
+target_folder = '../20190819_dataset_pin_3_left/train_vae/'
 
 for i in range(9):
 	if not os.path.exists(target_folder + '{:02d}'.format(i)):
@@ -17,7 +17,7 @@ for file_name in os.listdir(source_folder):
 
 files = os.listdir(source_folder)
 for m in range(9):
-	count = 0
+	count = len(os.listdir(target_folder + "{:02d}".format(m)))
 	for i in range(len(files)):
 		file = files[i]
 		img = cv2.imread(source_folder + file)

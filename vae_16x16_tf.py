@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
 class Model:
-	def __init__(self, input_shape=(16, 16, 3), cell_shape = (64,64,3),img_shape=(64*9,64,3), move = 8):
+	def __init__(self, compare_img_path=None, input_shape=(16, 16, 3), cell_shape = (64,64,3),img_shape=(64*9,64,3), move = 8):
 		#variable for model
 		self.number_of_model = 0
 		self.session = None
@@ -25,6 +25,7 @@ class Model:
 		self.cell_shape = cell_shape
 		self.img_shape = img_shape
 		self.move = move
+		self.compare_img = cv2.imread(compare_img_path)
 
 	@staticmethod
 	def init_model(namespace='model', input=None, Nc = 16, latent_dim = 2):
@@ -89,7 +90,7 @@ class Model:
 		kl_loss = tf.reduce_sum(kl_loss, axis=-1)
 		kl_loss *= -0.5
 
-		vae_loss = tf.reduce_mean(100*kl_loss + m_vae_loss + a_vae_loss)
+		vae_loss = tf.reduce_mean(4*kl_loss + m_vae_loss + a_vae_loss)
 		return vae_loss
 
 	#16×16のサイズに切り出す
@@ -263,7 +264,7 @@ class Model:
 				# 異常のスコア
 				img_anomaly[i * self.move:i * self.move + self.input_shape[0], j * self.move:j * self.move + self.input_shape[1], 0] += loss_ano[z]
 				z += 1
-		img_normal, img_anomaly = self.recalculate_conner_score(img_normal,img_anomaly)
+		# img_normal, img_anomaly = self.recalculate_conner_score(img_normal,img_anomaly)
 		return img_normal, img_anomaly
 
 	def save_loss_map(self,img_normal,img_anomaly):
@@ -442,10 +443,10 @@ class Model:
 			for y in range(int(pin_normal.shape[0]/self.cell_shape[0])):
 				for x in range(int(pin_normal.shape[1]/self.cell_shape[1])):
 					cut_img = img_1pin_anomaly[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]]
-					# cv2.imwrite("test%02d.png"%i,cut_img)
+					cv2.imwrite("test%02d.png"%i,cut_img)
 					test_anomaly_list.append(cut_img)
 					test_normal_list.append(pin_normal[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]])
-					# cv2.imwrite("compare%02d.png"%i,pin_normal[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]])
+					cv2.imwrite("compare%02d.png"%i,pin_normal[y*self.cell_shape[0]:y*self.cell_shape[0]+self.cell_shape[0],x*self.cell_shape[1]:x*self.cell_shape[1]+self.cell_shape[1]])
 					i+=1
 		return  test_normal_list, test_anomaly_list
 
@@ -487,16 +488,16 @@ class Model:
 			feed_dict_normal[self.input_list[m]]  = np.float32(x_sub_normal_list[m])
 			feed_dict_anomaly[self.input_list[m]] = np.float32(x_sub_anomaly_list[m])
 
-		start = time.time()
+		# start = time.time()
 		#正常のスコア
 		loss_list = self.session.run([self.score_list],feed_dict=feed_dict_normal)
 
 		#異常のスコア
 		loss_ano_list = self.session.run([self.score_list],feed_dict=feed_dict_anomaly)
-		print("time for inference",time.time() - start)
+		# print("time for inference",time.time() - start)
 		result = []
 
-		start = time.time()
+		# start = time.time()
 		loss_list = np.array(loss_list[0])
 		loss_ano_list = np.array(loss_ano_list[0])
 
@@ -507,7 +508,7 @@ class Model:
 				img_normal, img_anomaly = self.create_loss_img(loss_one_img,loss_ano_one_img)
 				# result.append(np.amax(self.get_subtraction_score_result(img_normal,img_anomaly)))
 				result.append(self.get_subtraction_score_result(img_normal,img_anomaly))
-		print("time for hitmap",time.time() - start)
+		# print("time for hitmap",time.time() - start)
 		return [result[i:num_of_pin*self.number_of_model:num_of_pin] for i in range(num_of_pin)]
 
 	def save_reconstruct_img(self,directory, model_id):
@@ -532,41 +533,47 @@ class Model:
 			cv2.imwrite("fukugen/" + file_name ,reconstruct*255)
 
 if __name__ == "__main__":
-	root_direct =  "../20190819_dataset_pin_3/"
-	# for temp in range(1):
-	# 	temp = 7
-	# 	model = Model()
-	# 	model.train(
-	# 		train_folder= root_direct + 'train_vae/%02d' % temp + '/',
-	# 		model_path= root_direct + '/model_vae_backup/model',
-	# 		data_num=100000,
-	# 		number_of_model=9,
-	# 		model_id=temp,
-	# 		new_combine_model=False,
-	# 		resume_single_model=False,
-	# 		batch_size=32,
-	# 		epochs=10
-	# 		)
-	# 	del model
+	root_direct =  "../20190819_dataset_pin_3_right/"
+	for temp in range(4,5):
+		# temp = 0
+		model = Model()
+		model.train(
+			train_folder= root_direct + 'train_vae/%02d' % temp + '/',
+			model_path= root_direct + '/model_vae/model',
+			data_num=100000,
+			number_of_model=9,
+			model_id=temp,
+			new_combine_model=False,
+			resume_single_model=False,
+			batch_size=128,
+			epochs=10
+			)
+		del model
 
-	temp = 0
+	temp = 4
 	model = Model()
 	model.load_model(model_path= root_direct + 'model_vae/model',number_of_model=9)
 
 	# #eval pin
-	directory = root_direct + "test/NG/"
-	for file_name in os.listdir(directory):
+	with open(des_folder + 'note.csv','w') as csv_file:
+		writer = csv.writer(csv_file, lineterminator='\n')
+		directory = root_direct + "train/"
 		input_normal = cv2.imread(root_direct + 'compare.png')
-		# list_input_anomaly = [cv2.imread(directory + file_name)]
-		list_input_anomaly = [cv2.imread(root_direct + "test/NG/20190819152808656110.png")]
-		for result in  model.detect(input_normal,list_input_anomaly):
-			img = cv2.resize(list_input_anomaly[0],(64,64*9))
-			for idx,score in enumerate(result):
-				y_ano,x_ano = np.where(score > 7.5)
-				if len(x_ano) != 0:
-					for x,y in zip(x_ano,y_ano):
-						img = cv2.rectangle(img,(x*8,idx * 64 + y*8),(x*8+8,idx * 64 + y*8+8),(0,255,0),1)
-					cv2.imwrite(root_direct+ "result/" + file_name, img)
+		for root, dirs, files in os.walk(directory):
+			for file_name in files:
+				print(file_name)
+				list_input_anomaly = [cv2.imread(directory + file_name)]
+				# list_input_anomaly = [cv2.imread(root_direct + "train/20190819153339767273.png")]
+				for result in  model.detect(input_normal,list_input_anomaly):
+					img = cv2.resize(list_input_anomaly[0],(64,64*9))
+					for idx,score in enumerate(result):
+						y_ano,x_ano = np.where(score > 8.5)
+						if len(x_ano) != 0:
+							max_score = np.max(score)
+							for x,y in zip(x_ano,y_ano):
+								img = cv2.rectangle(img,(x*8,idx * 64 + y*8),(x*8+8,idx * 64 + y*8+8),(0,255,0),1)
+							cv2.imwrite(root_direct+ "result/" + file_name, img)
+							writer.writerow([root_direct+ "result/" + file_name, max_score])
 
 	# test_normal = root_direct + "train_vae/%02d" % temp + "/000000.png"
 	# test_anomaly = root_direct + "test_vae/OK/%02d" % temp + "/000082.png"
