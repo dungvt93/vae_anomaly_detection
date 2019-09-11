@@ -10,6 +10,8 @@ import h5py
 import pickle
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
+import csv
+import math
 
 class Model:
 	def __init__(self, compare_img_path=None, input_shape=(16, 16, 3), cell_shape = (64,64,3),img_shape=(64*9,64,3), move = 8):
@@ -26,9 +28,10 @@ class Model:
 		self.img_shape = img_shape
 		self.move = move
 		self.compare_img = cv2.imread(compare_img_path)
+		self.test_list = []
 
 	@staticmethod
-	def init_model(namespace='model', input=None, Nc = 16, latent_dim = 2):
+	def init_model(namespace='model', input=None, Nc = 16, latent_dim = 6, learning_rate=0.0001):
 		with tf.variable_scope(namespace):
 			out_put  = input
 
@@ -59,10 +62,12 @@ class Model:
 
 			outputs_mu = tf.layers.conv2d_transpose(out_put, filters=3,kernel_size=(4,4),strides=(1,1),padding='same',activation=tf.nn.sigmoid)
 			outputs_sigma_2 = tf.layers.conv2d_transpose(out_put, filters=3,kernel_size=(4,4),strides=(1,1),padding='same',activation=tf.nn.sigmoid)
-			score = tf.reduce_sum(0.5 * (tf.reduce_mean(input,axis=[3]) - tf.reduce_mean(outputs_mu,axis=[3]))**2 / tf.reduce_mean(outputs_sigma_2,axis=[3]), axis=[1,2])
 
+			score = tf.reduce_sum(0.5 * (tf.reduce_mean(input,axis=[3]) - tf.reduce_mean(outputs_mu,axis=[3]))**2 / tf.reduce_mean(outputs_sigma_2,axis=[3]), axis=[1,2])
+			# score = tf.reduce_sum(0.5 * (tf.reduce_mean(input,axis=[3]) - tf.reduce_mean(outputs_mu,axis=[3]))**2, axis=[1,2])
 			cost = Model.compute_loss(input, z_log_var,z_mean,outputs_mu,outputs_sigma_2)
-			optimizer = tf.train.AdamOptimizer()
+			optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+			# optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
 			train_op = optimizer.minimize(cost)
 			return  score, cost, train_op, outputs_mu
 
@@ -80,7 +85,6 @@ class Model:
 	@staticmethod
 	def compute_loss(inputs, z_log_var, z_mean, outputs_mu,outputs_sigma_2):
 		m_vae_loss = (tf.layers.flatten(inputs) - tf.layers.flatten(outputs_mu))**2 / tf.layers.flatten(outputs_sigma_2)
-		# m_vae_loss = (tf.reshape(inputs, [-1]) - tf.reshape(outputs_mu, [-1]))**2 / tf.reshape(outputs_sigma_2, [-1])
 		m_vae_loss = 0.5 * tf.reduce_sum(m_vae_loss)
 
 		a_vae_loss = tf.log(2 * 3.14 * tf.layers.flatten(outputs_sigma_2))
@@ -90,7 +94,14 @@ class Model:
 		kl_loss = tf.reduce_sum(kl_loss, axis=-1)
 		kl_loss *= -0.5
 
-		vae_loss = tf.reduce_mean(4*kl_loss + m_vae_loss + a_vae_loss)
+		# test = -tf.math.sigmoid(tf.layers.flatten(outputs_sigma_2))
+		# test = tf.reduce_mean(test)
+		# exit()
+
+		vae_loss = tf.reduce_mean(kl_loss + m_vae_loss +  a_vae_loss)
+
+		# vae_loss = tf.reduce_mean(4*kl_loss + m_vae_loss +  a_vae_loss)
+		# vae_loss = tf.reduce_mean(kl_loss + m_vae_loss)
 		return vae_loss
 
 	#16×16のサイズに切り出す
@@ -106,6 +117,7 @@ class Model:
 			shape_1 = np.random.randint(0,x_shape[1]-height)
 			shape_2 = np.random.randint(0,x_shape[2]-width)
 			temp_img = x[shape_0, shape_1:shape_1+height, shape_2:shape_2+width, :]
+
 			x_out.append(temp_img.reshape((height, width, x_shape[3])))
 
 		print("Complete.")
@@ -130,6 +142,7 @@ class Model:
 		num_img = len(x_train)
 		x_train = np.array(x_train)
 		x_train = Model.cut_img(x_train, data_num, self.input_shape[0], self.input_shape[1])
+
 		print(x_train.shape)
 		return  x_train, num_img
 
@@ -148,10 +161,11 @@ class Model:
 		tf.reset_default_graph()
 		for i in range(number_of_model):
 			self.input_list.append(tf.placeholder(tf.float32, shape=[None, self.input_shape[0], self.input_shape[1], self.input_shape[2]]))
-			score , cost, train_op, _ = Model.init_model(namespace='model_' + str(i),input=self.input_list[i])
+			score , cost, train_op, output_mu = Model.init_model(namespace='model_' + str(i),input=self.input_list[i])
 			self.score_list.append(score)
 			self.cost_list.append(cost)
 			self.train_op_list.append(train_op)
+			self.outputs_mu_list.append(output_mu)
 
 		saver = tf.train.Saver()
 		config = tf.ConfigProto()
@@ -166,18 +180,21 @@ class Model:
 
 		#get data
 		number_train_files = len(os.listdir(train_folder))
-		for i in range(epochs):
-			offset = 0
-			while offset < number_train_files:
-				x_train,num_img = self.create_data(train_folder,data_num, offset)
-				offset += num_img
+		offset = 0
+		while offset < number_train_files:
+			x_train,num_img = self.create_data(train_folder,data_num, offset)
+			offset += num_img
+			for i in range(epochs):
 				aver_train_loss = 0
 				for j in range(0, data_num, batch_size):
 					end_j = min(data_num, j+batch_size)
 					x_train_batch = np.float32(x_train[j:end_j])
-					score, loss, _ = self.session.run([self.score_list[model_id],self.cost_list[model_id], self.train_op_list[model_id]], feed_dict={self.input_list[model_id]:x_train_batch})
+					score, loss, _, output_mu = self.session.run([self.score_list[model_id],self.cost_list[model_id], self.train_op_list[model_id], self.outputs_mu_list[model_id]], feed_dict={self.input_list[model_id]:x_train_batch})
+					# if np.isnan(loss):
+					# print(output_mu)
+					print(loss)
 					aver_train_loss += loss*(end_j - j)
-					sys.stdout.write('\rEpoch ' +  str(i) + ' Train Progress ' + str(j) + ' Loss ' + str(loss) )
+					# sys.stdout.write('\rEpoch ' +  str(i) + ' Train Progress ' + str(j) + ' Loss ' + str(loss))
 				aver_train_loss = aver_train_loss/data_num
 				print('\nModel ID', model_id,'Average Loss', aver_train_loss)
 				print("train status "+str(offset)+"/"+str(number_train_files))
@@ -286,8 +303,8 @@ class Model:
 		img_anomaly = img_anomaly[:,0,:,0]
 		img_anomaly = np.reshape(img_anomaly, [int(self.cell_shape[0]/self.move),int(self.cell_shape[1]/self.move)])
 
-		# np.savetxt("loss_file/img_normal",img_normal,'%5d')
-		np.savetxt("loss_file/img_anomaly",img_anomaly,'%5d')
+		np.savetxt("loss_file/img_normal",img_normal,'%5f')
+		np.savetxt("loss_file/img_anomaly",img_anomaly,'%5f')
 
 	#ヒートマップの描画
 	@staticmethod
@@ -344,8 +361,9 @@ class Model:
 	def is_anomaly(self, img_normal, img_anomaly, thres_hold=0, menseki=1):
 		result = False
 		# only use reconstruct loss
-		# if np.amax(img_anomaly > 2000):
-		#     result = True
+		# img_result = img_anomaly - img_normal
+		# if np.max(img_result > 3):
+		# 	return True
 
 		img_result = self.get_subtraction_score_result(img_normal,img_anomaly)
 		if menseki == 1:
@@ -506,6 +524,7 @@ class Model:
 				loss_one_img = loss[i*number_of_input:(i+1)*number_of_input]
 				loss_ano_one_img = loss_ano[i*number_of_input:(i+1)*number_of_input]
 				img_normal, img_anomaly = self.create_loss_img(loss_one_img,loss_ano_one_img)
+				#temp
 				# result.append(np.amax(self.get_subtraction_score_result(img_normal,img_anomaly)))
 				result.append(self.get_subtraction_score_result(img_normal,img_anomaly))
 		# print("time for hitmap",time.time() - start)
@@ -533,59 +552,73 @@ class Model:
 			cv2.imwrite("fukugen/" + file_name ,reconstruct*255)
 
 if __name__ == "__main__":
-	root_direct =  "../20190819_dataset_pin_3_right/"
-	for temp in range(4,5):
-		# temp = 0
-		model = Model()
-		model.train(
-			train_folder= root_direct + 'train_vae/%02d' % temp + '/',
-			model_path= root_direct + '/model_vae/model',
-			data_num=100000,
-			number_of_model=9,
-			model_id=temp,
-			new_combine_model=False,
-			resume_single_model=False,
-			batch_size=128,
-			epochs=10
-			)
-		del model
+	root_direct =  "../20190830_dataset/"
+	# for temp in range(9):
+	# 	# temp = 0
+	# 	model = Model()
+	# 	model.train(
+	# 		train_folder= root_direct + 'train_vae/%02d' % temp + '/',
+	# 		model_path= root_direct + '/model_vae/model',
+	# 		data_num=10000,
+	# 		number_of_model=9,
+	# 		model_id=temp,
+	# 		new_combine_model=False,
+	# 		resume_single_model=False,
+	# 		batch_size=32,
+	# 		epochs=10
+	# 		)
+	# 	del model
 
-	temp = 4
+	temp = 0
+	model = Model()
+	model.train(
+		train_folder= root_direct + 'train_vae/%02d' % temp + '/',
+		model_path= root_direct + '/model_vae/model2',
+		data_num=10000,
+		number_of_model=9,
+		model_id=temp,
+		new_combine_model=True,
+		resume_single_model=False,
+		batch_size=32,
+		epochs=10
+	)
+	del model
 	model = Model()
 	model.load_model(model_path= root_direct + 'model_vae/model',number_of_model=9)
 
 	# #eval pin
-	with open(des_folder + 'note.csv','w') as csv_file:
-		writer = csv.writer(csv_file, lineterminator='\n')
-		directory = root_direct + "train/"
-		input_normal = cv2.imread(root_direct + 'compare.png')
-		for root, dirs, files in os.walk(directory):
-			for file_name in files:
-				print(file_name)
-				list_input_anomaly = [cv2.imread(directory + file_name)]
-				# list_input_anomaly = [cv2.imread(root_direct + "train/20190819153339767273.png")]
-				for result in  model.detect(input_normal,list_input_anomaly):
-					img = cv2.resize(list_input_anomaly[0],(64,64*9))
-					for idx,score in enumerate(result):
-						y_ano,x_ano = np.where(score > 8.5)
-						if len(x_ano) != 0:
-							max_score = np.max(score)
-							for x,y in zip(x_ano,y_ano):
-								img = cv2.rectangle(img,(x*8,idx * 64 + y*8),(x*8+8,idx * 64 + y*8+8),(0,255,0),1)
-							cv2.imwrite(root_direct+ "result/" + file_name, img)
-							writer.writerow([root_direct+ "result/" + file_name, max_score])
+	# with open(root_direct + "result/" + 'note.csv','w') as csv_file:
+	# 	writer = csv.writer(csv_file, lineterminator='\n')
+	# 	directory = root_direct + "20190829_result/origin/"
+	# 	input_normal = cv2.imread(root_direct + 'compare_2.png')
+	# 	for root, dirs, files in os.walk(directory):
+	# 		for file_name in files:
+	# 			print(file_name)
+	# 			if os.path.splitext(file_name)[1] != ".png" and os.path.splitext(file_name)[1] != ".jpg" :
+	# 				continue
+	# 			list_input_anomaly = [cv2.imread(directory + file_name)]
+	# 			# list_input_anomaly = [cv2.imread(root_direct + "result_1time/origin/20190823153349265263.png")]
+	# 			for result in  model.detect(input_normal,list_input_anomaly):
+	# 				img = cv2.resize(list_input_anomaly[0],(64,64*9))
+	# 				for idx,score in enumerate(result):
+	# 					y_ano,x_ano = np.where(score > 6)
+	# 					if len(x_ano) != 0:
+	# 						max_score = np.max(score)
+	# 						for x,y in zip(x_ano,y_ano):
+	# 							img = cv2.rectangle(img,(x*8,idx * 64 + y*8),(x*8+8,idx * 64 + y*8+8),(0,255,0),1)
+	# 						cv2.imwrite(root_direct+ "result/" + file_name, img)
+	# 						writer.writerow([root_direct+ "result/" + file_name, max_score])
 
-	# test_normal = root_direct + "train_vae/%02d" % temp + "/000000.png"
-	# test_anomaly = root_direct + "test_vae/OK/%02d" % temp + "/000082.png"
-	test_normal = "./compare%02d.png" % temp
-	test_anomaly = "./test%02d.png" % temp
+	test_normal = root_direct + "train_vae/%02d" % temp + "/000000.png"
+	test_anomaly = root_direct + "test_vae_K/%02d" % temp + "/000019.png"
+	# test_normal = "./compare%02d.png" % temp
+	# test_anomaly = "./test%02d.png" % temp
 	# #
-	# threshold = 7.5
+	threshold = 5
 	# model.print_eval(root_direct + "test_vae/OK/%02d" % temp,test_normal,model_id=temp,thres_hold=threshold)
 	# print("***********************************************")
-	# model.print_eval(root_direct + "test_vae/NG/%02d" % temp,test_normal,model_id=temp,thres_hold=threshold)
+	# model.print_eval(root_direct + "test_vae_K/%02d" % temp,test_normal,model_id=temp,thres_hold=threshold)
 
 	model.evaluate_img(test_normal, test_anomaly, im_show=True, model_id=temp)
 
-# model.save_reconstruct_img("dump" ,temp)
-
+	# model.save_reconstruct_img(root_direct + "test_vae/%02d" % temp  ,temp)

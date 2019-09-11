@@ -17,37 +17,46 @@ def inference_zip_folder(zip_folder,des_folder="./result"):
     # if not os.path.exists(des_folder + "/" + zip_folder_name):
     #     os.mkdir(des_folder + "/" + zip_folder_name)
     total_img = 0
-    with zipfile.ZipFile(zip_folder) as archive:
-        for entry in archive.infolist():
-            total_img += 1
-            with archive.open(entry) as file:
-                start = time.time()
-                img = Image.open(file)
-                img = np.array(img)
-                #convert RGB to BGR
-                img = img[:,:,::-1]
-                print("time of get from zip ",time.time() - start)
-                _,_,result = tnn_model.detect(img,detect_threshold)
-                if len(result) != 0 and result[0] is not None:
-                    result_img, _ = run_judgement_model(result[0],judgement_threshold)
-                    if result_img is not None:
-                        print(des_folder+"/"+os.path.basename(file.name))
-                        # print(des_folder+"/"+zip_folder_name+"/"+os.path.basename(file.name))
-                        # print(cv2.imwrite(des_folder+"/"+zip_folder_name+"/"+os.path.basename(file.name),result_img))
-                        print(cv2.imwrite(des_folder+"/"+os.path.basename(file.name),result_img))
-                else:
-                    print("can't detect any pin")
+    with open(des_folder + 'note.csv','a') as csv_file:
+        writer = csv.writer(csv_file, lineterminator='\n')
+        with zipfile.ZipFile(zip_folder) as archive:
+            for entry in archive.infolist():
+                total_img += 1
+                with archive.open(entry) as file:
+                    start = time.time()
+                    img = Image.open(file)
+                    img = np.array(img)
+                    #convert RGB to BGR
+                    img = img[:,:,::-1]
+                    print("time of get from zip ",time.time() - start)
+                    _,_,result = tnn_model.detect(img,detect_threshold)
+                    if len(result) != 0 and result[0] is not None:
+                        result_img, max_score = run_judgement_model(result[0],judgement_threshold)
+                        if result_img is not None:
+                            print(des_folder+"/"+os.path.basename(file.name))
+                            # print(des_folder+"/"+zip_folder_name+"/"+os.path.basename(file.name))
+                            # print(cv2.imwrite(des_folder+"/"+zip_folder_name+"/"+os.path.basename(file.name),result_img))
+                            print(cv2.imwrite(des_folder + "/" + os.path.basename(file.name),result_img))
+                            print(cv2.imwrite(des_folder + "/origin/" + os.path.basename(file.name),result[0]))
+                            writer.writerow([des_folder + "/" + os.path.basename(file.name), max_score])
+                    else:
+                        print("can't detect any pin")
+            archive.close()
+
     return total_img
 
 def inference_folder(input_folder):
     total_img = 0
-    with open(des_folder + 'note.csv','w') as csv_file:
+    with open(des_folder + 'note.csv','a') as csv_file:
         writer = csv.writer(csv_file, lineterminator='\n')
         for root, dirs, files in os.walk(input_folder):
             for file_name in files:
                 total_img += 1
                 print(file_name)
-                img = cv2.imread(input_folder + "/" + root + "/" + file_name)
+                if os.path.splitext(file_name)[1] != ".png" and os.path.splitext(file_name)[1] != ".jpg" :
+                    continue
+                img = cv2.imread(root + "/" + file_name)
+                # print (root + "/" + file_name)
                 # img = cv2.imread(root_direct + "temp/20190819155943793991.png")
                 _,_,result = tnn_model.detect(img,detect_threshold)
                 if len(result) != 0 and result[0] is not None:
@@ -59,7 +68,7 @@ def inference_folder(input_folder):
                         writer.writerow([des_folder + "/" + file_name, max_score])
                 else:
                     print("can't detect any pin")
-        return  total_img
+    return  total_img
 
 def run_judgement_model(test_img,threshold):
     result_img = None
@@ -79,13 +88,13 @@ def run_judgement_model(test_img,threshold):
 
 if __name__ == "__main__":
     start = time.time()
-    root_direct =  "../20190819_dataset_pin_3_left/"
+    root_direct =  "../20190830_dataset/"
 
     detect_threshold = 0.8
     tnn_model = tnn.Model(root_direct)
 
-    judgement_threshold = 7.5
-    judgement_model = vae_16x16_tf.Model(compare_img_path= root_direct + 'compare.png')
+    judgement_threshold = 4
+    judgement_model = vae_16x16_tf.Model(compare_img_path= root_direct + 'compare_0906.png')
     judgement_model.load_model(root_direct + "model_vae/model")
 
     input_folder = sys.argv[1]
