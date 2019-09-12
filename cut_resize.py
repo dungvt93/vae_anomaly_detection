@@ -2,8 +2,8 @@ import cv2
 import os
 
 
-source_folder = '../20190830_dataset/test_K/'
-target_folder = '../20190830_dataset/test_vae_K/'
+source_folder = '../20190830_dataset/train_bonus/'
+target_folder = '../20190830_dataset/train_bonus_vae/'
 
 for i in range(9):
 	if not os.path.exists(target_folder + '{:02d}'.format(i)):

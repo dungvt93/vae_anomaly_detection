@@ -28,7 +28,6 @@ class Model:
 		self.img_shape = img_shape
 		self.move = move
 		self.compare_img = cv2.imread(compare_img_path)
-		self.test_list = []
 
 	@staticmethod
 	def init_model(namespace='model', input=None, Nc = 16, latent_dim = 6, learning_rate=0.0001):
@@ -62,9 +61,11 @@ class Model:
 
 			outputs_mu = tf.layers.conv2d_transpose(out_put, filters=3,kernel_size=(4,4),strides=(1,1),padding='same',activation=tf.nn.sigmoid)
 			outputs_sigma_2 = tf.layers.conv2d_transpose(out_put, filters=3,kernel_size=(4,4),strides=(1,1),padding='same',activation=tf.nn.sigmoid)
-
+			# outputs_sigma_2 = outputs_sigma_2 + 0.0001
+			outputs_sigma_2 = tf.where(tf.less(outputs_sigma_2,0.000001),outputs_sigma_2+0.000001,outputs_sigma_2)
 			score = tf.reduce_sum(0.5 * (tf.reduce_mean(input,axis=[3]) - tf.reduce_mean(outputs_mu,axis=[3]))**2 / tf.reduce_mean(outputs_sigma_2,axis=[3]), axis=[1,2])
-			# score = tf.reduce_sum(0.5 * (tf.reduce_mean(input,axis=[3]) - tf.reduce_mean(outputs_mu,axis=[3]))**2, axis=[1,2])
+			# score = outputs_sigma_2
+
 			cost = Model.compute_loss(input, z_log_var,z_mean,outputs_mu,outputs_sigma_2)
 			optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
 			# optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
@@ -95,10 +96,10 @@ class Model:
 		kl_loss *= -0.5
 
 		# test = -tf.math.sigmoid(tf.layers.flatten(outputs_sigma_2))
-		# test = tf.reduce_mean(test)
+		# test = tf.reduce_sum(test)
 		# exit()
 
-		vae_loss = tf.reduce_mean(kl_loss + m_vae_loss +  a_vae_loss)
+		vae_loss = tf.reduce_mean(4*kl_loss + m_vae_loss +  a_vae_loss)
 
 		# vae_loss = tf.reduce_mean(4*kl_loss + m_vae_loss +  a_vae_loss)
 		# vae_loss = tf.reduce_mean(kl_loss + m_vae_loss)
@@ -128,6 +129,8 @@ class Model:
 		x_train = []
 		for idx,file_name in enumerate(os.listdir(train_folder)):
 			if idx >= offset:
+				if os.path.splitext(file_name)[1] != ".png" and os.path.splitext(file_name)[1] != ".jpg" :
+					continue
 				image = cv2.imread(train_folder + file_name)
 				image = cv2.resize(image,(self.cell_shape[1],self.cell_shape[0]))
 				# print(file_name)
@@ -139,12 +142,11 @@ class Model:
 				x_train.append(image)
 			if len(x_train) >= 4000:
 				break
-		num_img = len(x_train)
 		x_train = np.array(x_train)
 		x_train = Model.cut_img(x_train, data_num, self.input_shape[0], self.input_shape[1])
 
 		print(x_train.shape)
-		return  x_train, num_img
+		return  x_train
 
 	# param:
 	# 1. folder image for trainning
@@ -182,19 +184,29 @@ class Model:
 		number_train_files = len(os.listdir(train_folder))
 		offset = 0
 		while offset < number_train_files:
-			x_train,num_img = self.create_data(train_folder,data_num, offset)
-			offset += num_img
+			x_train = self.create_data(train_folder,data_num, offset)
+			offset += 4000
 			for i in range(epochs):
 				aver_train_loss = 0
 				for j in range(0, data_num, batch_size):
 					end_j = min(data_num, j+batch_size)
 					x_train_batch = np.float32(x_train[j:end_j])
 					score, loss, _, output_mu = self.session.run([self.score_list[model_id],self.cost_list[model_id], self.train_op_list[model_id], self.outputs_mu_list[model_id]], feed_dict={self.input_list[model_id]:x_train_batch})
+
+					# print(np.sum(output_mu))
+					# if len(np.where(output_mu == 0)[0]) > 0:
+					# 	print(np.where(output_mu == 0))
+					# 	exit()
 					# if np.isnan(loss):
-					# print(output_mu)
-					print(loss)
+					# if loss < -60000:
+					# 	with open('dkm2.txt','a') as outfile:
+					# 		for dkm in output_mu:
+					# 			for dkm2 in dkm:
+					# 				np.savetxt(outfile,dkm2,"%5f")
+					# 	print("loss")
+					# 	exit()
 					aver_train_loss += loss*(end_j - j)
-					# sys.stdout.write('\rEpoch ' +  str(i) + ' Train Progress ' + str(j) + ' Loss ' + str(loss))
+					sys.stdout.write('\rEpoch ' +  str(i) + ' Train Progress ' + str(j) + ' Loss ' + str(loss))
 				aver_train_loss = aver_train_loss/data_num
 				print('\nModel ID', model_id,'Average Loss', aver_train_loss)
 				print("train status "+str(offset)+"/"+str(number_train_files))
@@ -437,6 +449,8 @@ class Model:
 		# dump code
 		# error_list = []
 		for file_name in os.listdir(dir_name):
+			if os.path.splitext(file_name)[1] != ".png" and os.path.splitext(file_name)[1] != ".jpg" :
+				continue
 			test = dir_name + "/" + file_name
 			result = self.evaluate_img( base_img, test, model_id=model_id,im_show=False,thres_hold=thres_hold)
 			# if len(np.where(sub_img > 6)[0]) > 32:
@@ -553,72 +567,49 @@ class Model:
 
 if __name__ == "__main__":
 	root_direct =  "../20190830_dataset/"
-	# for temp in range(9):
-	# 	# temp = 0
-	# 	model = Model()
-	# 	model.train(
-	# 		train_folder= root_direct + 'train_vae/%02d' % temp + '/',
-	# 		model_path= root_direct + '/model_vae/model',
-	# 		data_num=10000,
-	# 		number_of_model=9,
-	# 		model_id=temp,
-	# 		new_combine_model=False,
-	# 		resume_single_model=False,
-	# 		batch_size=32,
-	# 		epochs=10
-	# 		)
-	# 	del model
+	for temp in range(9):
+		# temp = 0
+		model = Model()
+		model.train(
+			train_folder= root_direct + 'train_vae/%02d' % temp + '/',
+			model_path= root_direct + '/model_vae/model2',
+			data_num=10000,
+			number_of_model=9,
+			model_id=temp,
+			new_combine_model=False,
+			resume_single_model=True,
+			batch_size=32,
+			epochs=1
+			)
+		del model
 
-	temp = 0
-	model = Model()
-	model.train(
-		train_folder= root_direct + 'train_vae/%02d' % temp + '/',
-		model_path= root_direct + '/model_vae/model2',
-		data_num=10000,
-		number_of_model=9,
-		model_id=temp,
-		new_combine_model=True,
-		resume_single_model=False,
-		batch_size=32,
-		epochs=10
-	)
-	del model
-	model = Model()
-	model.load_model(model_path= root_direct + 'model_vae/model',number_of_model=9)
+	# temp = 3
+	# model = Model()
+	# model.train(
+	# 	train_folder= root_direct + 'train_vae/%02d' % temp + '/',
+	# 	model_path= root_direct + '/model_vae/model2',
+	# 	data_num=10000,
+	# 	number_of_model=9,
+	# 	model_id=temp,
+	# 	new_combine_model=False,
+	# 	resume_single_model=True,
+	# 	batch_size=32,
+	# 	epochs=10
+	# )
+	# del model
+	# model = Model()
+	# model.load_model(model_path= root_direct + 'model_vae/model2',number_of_model=9)
 
-	# #eval pin
-	# with open(root_direct + "result/" + 'note.csv','w') as csv_file:
-	# 	writer = csv.writer(csv_file, lineterminator='\n')
-	# 	directory = root_direct + "20190829_result/origin/"
-	# 	input_normal = cv2.imread(root_direct + 'compare_2.png')
-	# 	for root, dirs, files in os.walk(directory):
-	# 		for file_name in files:
-	# 			print(file_name)
-	# 			if os.path.splitext(file_name)[1] != ".png" and os.path.splitext(file_name)[1] != ".jpg" :
-	# 				continue
-	# 			list_input_anomaly = [cv2.imread(directory + file_name)]
-	# 			# list_input_anomaly = [cv2.imread(root_direct + "result_1time/origin/20190823153349265263.png")]
-	# 			for result in  model.detect(input_normal,list_input_anomaly):
-	# 				img = cv2.resize(list_input_anomaly[0],(64,64*9))
-	# 				for idx,score in enumerate(result):
-	# 					y_ano,x_ano = np.where(score > 6)
-	# 					if len(x_ano) != 0:
-	# 						max_score = np.max(score)
-	# 						for x,y in zip(x_ano,y_ano):
-	# 							img = cv2.rectangle(img,(x*8,idx * 64 + y*8),(x*8+8,idx * 64 + y*8+8),(0,255,0),1)
-	# 						cv2.imwrite(root_direct+ "result/" + file_name, img)
-	# 						writer.writerow([root_direct+ "result/" + file_name, max_score])
-
-	test_normal = root_direct + "train_vae/%02d" % temp + "/000000.png"
-	test_anomaly = root_direct + "test_vae_K/%02d" % temp + "/000019.png"
+	# test_normal = root_direct + "train_vae/%02d" % temp + "/000000.png"
+	# test_anomaly = root_direct + "test_vae_K/%02d" % temp + "/test.png"
 	# test_normal = "./compare%02d.png" % temp
 	# test_anomaly = "./test%02d.png" % temp
 	# #
-	threshold = 5
+	# threshold = 6
 	# model.print_eval(root_direct + "test_vae/OK/%02d" % temp,test_normal,model_id=temp,thres_hold=threshold)
 	# print("***********************************************")
 	# model.print_eval(root_direct + "test_vae_K/%02d" % temp,test_normal,model_id=temp,thres_hold=threshold)
 
-	model.evaluate_img(test_normal, test_anomaly, im_show=True, model_id=temp)
+	# model.evaluate_img(test_normal, test_anomaly, im_show=True, model_id=temp)
 
 	# model.save_reconstruct_img(root_direct + "test_vae/%02d" % temp  ,temp)

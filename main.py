@@ -70,6 +70,26 @@ def inference_folder(input_folder):
                     print("can't detect any pin")
     return  total_img
 
+def inference_folder_pin(input_folder):
+    total_img = 0
+    with open(des_folder + 'note.csv','a') as csv_file:
+        writer = csv.writer(csv_file, lineterminator='\n')
+        for root, dirs, files in os.walk(input_folder):
+            for file_name in files:
+                total_img += 1
+                print(file_name)
+                if os.path.splitext(file_name)[1] != ".png" and os.path.splitext(file_name)[1] != ".jpg" :
+                    continue
+                img = cv2.imread(root + "/" + file_name)
+                result_img, max_score = run_judgement_model(img,judgement_threshold)
+                if result_img is not None:
+                    print(des_folder + file_name)
+                    print(cv2.imwrite(des_folder + "/" + file_name,result_img))
+                    print(cv2.imwrite(des_folder + "/origin/" + file_name,img))
+                    writer.writerow([des_folder + "/" + file_name, max_score])
+
+    return  total_img
+
 def run_judgement_model(test_img,threshold):
     result_img = None
     max_score = 0
@@ -77,10 +97,11 @@ def run_judgement_model(test_img,threshold):
     list_input_anomaly = [test_img]
     for result in  judgement_model.detect(judgement_model.compare_img,list_input_anomaly):
         img = cv2.resize(list_input_anomaly[0],(judgement_model.img_shape[1],judgement_model.img_shape[0]))
+        max_score  = 0
         for idx,score in enumerate(result):
             y_ano,x_ano = np.where(score > threshold)
             if len(x_ano) != 0:
-                max_score = np.max(score)
+                max_score = np.max(score) if np.max(score) > max_score else max_score
                 for x,y in zip(x_ano,y_ano):
                     result_img = cv2.rectangle(img,(x*8,idx * 64 + y*8),(x*8+8,idx * 64 + y*8+8),(0,255,0),1)
 
@@ -93,9 +114,9 @@ if __name__ == "__main__":
     detect_threshold = 0.8
     tnn_model = tnn.Model(root_direct)
 
-    judgement_threshold = 4
+    judgement_threshold = 6
     judgement_model = vae_16x16_tf.Model(compare_img_path= root_direct + 'compare_0906.png')
-    judgement_model.load_model(root_direct + "model_vae/model")
+    judgement_model.load_model(root_direct + "model_vae/model2")
 
     input_folder = sys.argv[1]
     des_folder=root_direct + "result/"
@@ -109,6 +130,9 @@ if __name__ == "__main__":
         elif os.path.isdir(input_folder):
             for zip_folder in os.listdir(input_folder):
                 total += inference_zip_folder(zip_folder=input_folder+ "/" +zip_folder, des_folder=des_folder)
+
+    elif len(sys.argv) >= 3 and sys.argv[2] == "pin":
+        total += inference_folder_pin(input_folder)
     else:
         total += inference_folder(input_folder)
 
