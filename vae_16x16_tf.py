@@ -61,8 +61,8 @@ class Model:
 
 			outputs_mu = tf.layers.conv2d_transpose(out_put, filters=3,kernel_size=(4,4),strides=(1,1),padding='same',activation=tf.nn.sigmoid)
 			outputs_sigma_2 = tf.layers.conv2d_transpose(out_put, filters=3,kernel_size=(4,4),strides=(1,1),padding='same',activation=tf.nn.sigmoid)
-			# outputs_sigma_2 = outputs_sigma_2 + 0.0001
-			outputs_sigma_2 = tf.where(tf.less(outputs_sigma_2,0.000001),outputs_sigma_2+0.000001,outputs_sigma_2)
+			outputs_sigma_2 = outputs_sigma_2 + 1e-10
+			# outputs_sigma_2 = tf.where(tf.less(outputs_sigma_2,0.000001),outputs_sigma_2+0.000001,outputs_sigma_2)
 			score = tf.reduce_sum(0.5 * (tf.reduce_mean(input,axis=[3]) - tf.reduce_mean(outputs_mu,axis=[3]))**2 / tf.reduce_mean(outputs_sigma_2,axis=[3]), axis=[1,2])
 			# score = outputs_sigma_2
 
@@ -566,37 +566,37 @@ class Model:
 			cv2.imwrite("fukugen/" + file_name ,reconstruct*255)
 
 if __name__ == "__main__":
-	root_direct =  "../20190830_dataset/"
-	for temp in range(9):
-		# temp = 0
-		model = Model()
-		model.train(
-			train_folder= root_direct + 'train_vae/%02d' % temp + '/',
-			model_path= root_direct + '/model_vae/model2',
-			data_num=10000,
-			number_of_model=9,
-			model_id=temp,
-			new_combine_model=False,
-			resume_single_model=True,
-			batch_size=32,
-			epochs=1
-			)
-		del model
+	root_direct =  "../20190819_dataset_pin_3_left/"
+	# for temp in range(9):
+	# 	# temp = 0
+	# 	model = Model()
+	# 	model.train(
+	# 		train_folder= root_direct + 'train_bonus_vae2/%02d' % temp + '/',
+	# 		model_path= root_direct + '/model_vae/model',
+	# 		data_num=10000,
+	# 		number_of_model=9,
+	# 		model_id=temp,
+	# 		new_combine_model=False,
+	# 		resume_single_model=True,
+	# 		batch_size=32,
+	# 		epochs=5
+	# 		)
+	# 	del model
 
-	# temp = 3
-	# model = Model()
-	# model.train(
-	# 	train_folder= root_direct + 'train_vae/%02d' % temp + '/',
-	# 	model_path= root_direct + '/model_vae/model2',
-	# 	data_num=10000,
-	# 	number_of_model=9,
-	# 	model_id=temp,
-	# 	new_combine_model=False,
-	# 	resume_single_model=True,
-	# 	batch_size=32,
-	# 	epochs=10
-	# )
-	# del model
+	temp = 4
+	model = Model()
+	model.train(
+		train_folder= root_direct + 'train_vae/%02d' % temp + '/',
+		model_path= root_direct + '/model_vae/model',
+		data_num=100000,
+		number_of_model=9,
+		model_id=temp,
+		new_combine_model=False,
+		resume_single_model=False,
+		batch_size=32,
+		epochs=10
+	)
+	del model
 	# model = Model()
 	# model.load_model(model_path= root_direct + 'model_vae/model2',number_of_model=9)
 
